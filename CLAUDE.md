@@ -36,11 +36,14 @@ js/auth-ui.js            Sign in / create account / Google sign-in / password
                          reset / sign-out / workspace invite-code UI. Talks to
                          app.js only via DOM CustomEvents (see Event contract)
                          — the two files do not import each other.
-js/app.js                The original tracker UI logic (profiles, japa,
-                         practice, reading, learning, calendar, Guru's
-                         Teachings, the fullscreen japa counter and the
-                         Chakra Dharana iframe), adapted to call
-                         cloud-store.js instead of window.storage.
+js/app.js                The tracker UI logic: profiles, japa, practice,
+                         reading, learning, calendar, Guru's Teachings, the
+                         fullscreen japa counter, the Chakra Dharana iframe,
+                         and the Routine Scheduler (Today's Schedule section,
+                         the Routine tab's timeline/weekly/overview views,
+                         activity CRUD, templates). One file, one module
+                         scope — see "Routine Scheduler module" below for
+                         why it wasn't split out.
 js/chakra-data.js        A large base64-encoded standalone HTML document
                          (the "Chakra Dharana" visualizer) rendered in an
                          iframe via a data: URL. Kept as its own module so it
@@ -77,6 +80,85 @@ in-app **profile** (the Aditya/Radhika-style cards on the user-select
 screen) — multiple people can share one workspace and therefore see the same
 set of profiles and data, without sharing a login.
 
+Each profile's `sadhana-data-<profileId>` blob additionally holds (added by
+the Routine Scheduler, see below): `activities` (custom/flexible activity
+definitions), `templates` + `activeTemplateId` (saved routine snapshots),
+and `mandatorySchedule` (optional display-time/duration overrides for the
+Japa/Practice sandhyas, used only to position them on the timeline). New
+profiles get these via `defaultData()`; profiles created before this
+feature existed are back-filled by `normalizeData()` the first time they're
+loaded — always route a freshly-fetched profile blob through
+`normalizeData()` rather than using `JSON.parse()` directly.
+
+## Routine Scheduler module
+
+Added after the initial PWA conversion. Lives entirely inside `js/app.js`
+(same module scope as everything else) rather than a separate file,
+because it needs direct read/write access to the same `data` object,
+`runningTimers` map, and helpers (`save()`, `todayStr()`, `escapeHtml()`,
+etc.) that the rest of the tracker uses — splitting it out would have meant
+either duplicating that state or wiring up another cross-module event
+contract for what is, conceptually, one feature area of one tracker.
+
+Key design decisions, in case they need revisiting:
+
+- **One activity model, no duplicate data sources.** A "flexible" (no
+  fixed time) activity is just one whose `schedule.startTime` is `null` —
+  there's no separate flexible-tasks array. The four mandatory practices
+  are *not* stored as `activities` entries; `getMandatoryBlocksForDate()`
+  computes their timeline blocks live from the real `data.japa`/
+  `data.practice` arrays (with the sandhya's default time, or an override
+  from `mandatorySchedule`, if set). This was a deliberate choice over
+  syncing mirror entries in `data.activities`, which would have created
+  exactly the duplicate-state problem the feature brief warned against.
+- **Reading and Learning have no time-of-day concept in the existing app**
+  (Reading is a per-day page count, Learning is milestones/notes with no
+  daily log at all) — so they are *not* forced onto the timeline. They
+  appear in the "Mandatory Practices" pinned strip at the top of the
+  Routine tab as a status summary instead. Don't invent a timer or a
+  schedule for them; if a real requirement for that shows up, it needs its
+  own design discussion, not a bolt-on.
+- **Timers are reused, not reinvented.** `startActivityTimer` /
+  `pauseActivityTimer` / `completeActivityTimer` (next to `stopPractice`)
+  key into the *same* `runningTimers` map as the mandatory Practice timer,
+  using `'activity|<id>'` keys. `finalizeAllRunning()` dispatches on the
+  key prefix — if you ever add a third kind of timer sharing this map,
+  update that function too, or timers of the new kind will silently be
+  routed through `stopPractice()` on sign-out/switch-user.
+- **Mandatory blocks are draggable/resizable but not deletable.** Dragging
+  a Japa/Practice block writes into `data.mandatorySchedule[kind][sandhya]`
+  (`{time, durationMin}`), purely for timeline display/planning — it does
+  not change how the real timer behaves. The "duration" for a mandatory
+  block is therefore a planning hint, not an enforced limit.
+- **Overlap layout.** `layoutBlocksForOverlap()` gives each cluster of
+  time-overlapping blocks side-by-side columns (classic calendar-app
+  layout), computed independently of `markConflicts()`'s conflict
+  flagging. Without this, two overlapping blocks fully cover each other
+  and the bottom one becomes unclickable — this was caught by testing, not
+  designed in from the start, so don't remove it as "simplification."
+- **Click-vs-drag disambiguation.** Both `wireBlockDrag()` and
+  `wireBlockResize()` require the pointer to move past a small threshold
+  (4px / 3px) before treating the gesture as a drag/resize; below that,
+  pointerup is a no-op and the block's own `click` listener (which opens
+  the expand panel) fires normally. Removing the threshold reintroduces a
+  real bug: every click re-renders the timeline (via
+  `applyBlockTimeChange`) before the `click` event can reach the
+  (now-replaced) DOM node, so the expand panel silently never opens.
+
+**Simplified vs. the full original feature brief** (documented here so it
+isn't mistaken for an oversight):
+- **Weekly view** is click-a-day-to-jump-to-Daily-view (where the full
+  drag/resize/expand toolset is available), plus "Duplicate" from the
+  expand panel to copy an activity elsewhere — not true drag-and-drop
+  across weekday columns.
+- **No separate multi-year Insights/Progress tab.** `renderRoutineAnalytics()`
+  covers the current day only (scheduled/completed/remaining time, a
+  category breakdown). A "what did I miss and when" historical drill-down
+  across days/weeks/months would be a substantial feature on its own.
+- **Pinch/zoom** on the timeline was not implemented; the daily timeline
+  scrolls vertically instead (`#timelineWrap`, max-height with
+  `overflow-y:auto`, auto-scrolls to the current time on open).
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -102,11 +184,16 @@ without app.js needing to know about it.
   modules (`<script type="module">`) and CDN imports pinned to an exact
   Firebase SDK version in `js/firebase-init.js`. Keep it that way unless
   there's a strong reason to add a bundler.
-- **Don't touch the UI/CSS** unless a change is explicitly requested — the
-  visual design, class names, and DOM ids are preserved verbatim from the
-  original file so behavior stays exactly the same. Most `id`/`class`
-  attributes are relied on by `js/app.js`'s `getElementById`/`querySelector`
-  calls; renaming one means updating the other.
+- **Don't touch the UI/CSS of the original tracker** (Today's mandatory
+  sections, Calendar, Guru's Teachings, the fullscreen japa counter, Chakra
+  Dharana) unless a change is explicitly requested — its visual design,
+  class names, and DOM ids are preserved from the original single-file app
+  so behavior stays exactly the same. Most `id`/`class` attributes there
+  are relied on by `js/app.js`'s `getElementById`/`querySelector` calls;
+  renaming one means updating the other. New UI added for the Routine
+  Scheduler follows the same design language (fonts, palette, `.pill`/
+  `.item-row`/`.add-form` patterns) intentionally, so it reads as part of
+  the same app rather than a bolted-on feature.
 - **Real-time sync is intentionally partial.** The profile list and the
   shared Guru's Teachings library live-update across devices via Firestore
   `onSnapshot` listeners (see `initApp()` in app.js). Per-profile tracker
@@ -144,3 +231,20 @@ browser:
    learning track all persist across a page reload.
 4. The app still opens (from cache) with the network disabled, after having
    loaded it once online.
+5. Routine Scheduler: add a custom activity with a start time — it appears
+   in both Today's Schedule (after the mandatory sections) and the Routine
+   tab's timeline, positioned/sized correctly. Start/Pause/Resume/Complete
+   works from both places and agrees on state. Dragging a block changes its
+   time; dragging its bottom edge changes its duration; both persist across
+   a reload. Two overlapping blocks render side-by-side and show a conflict
+   warning. An activity with no start time shows up under "Flexible" in
+   both Today and the Routine tab, and scheduling it (via the time input or
+   dragging it onto the timeline) moves it into the timed list.
+6. Deleting one of the four mandatory practices is not possible anywhere in
+   the UI; their Routine-tab blocks show a "🔒 Core" badge and only expose
+   a time/duration editor, never a delete action.
+
+During development this was exercised with Playwright against a mocked
+Firebase (Auth + Firestore) backend rather than a real project — see the
+approach in prior session scratch work if you need to rebuild that harness;
+it isn't checked into the repo.

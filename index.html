@@ -103,6 +103,7 @@
 
   <div class="tabs">
     <button class="tab-btn active" data-tab="today">Today</button>
+    <button class="tab-btn" data-tab="routine">Routine</button>
     <button class="tab-btn" data-tab="calendar">Calendar</button>
     <button class="tab-btn" data-tab="gurus">Guru's Teachings</button>
     <button class="tab-btn" data-tab="chakra">Chakra Dharana</button>
@@ -199,6 +200,27 @@
       </div>
       <div id="learningList"></div>
     </section>
+
+    <!-- Today's Schedule: custom activities from the Routine Scheduler due today -->
+    <section class="habit-section" id="todayScheduleSection">
+      <div class="sec-head">
+        <div>
+          <h2>Today's Schedule</h2>
+          <div class="desc">From your Routine Scheduler, in addition to the mandatory practices above</div>
+        </div>
+        <button class="add-link" id="todayAddActivityLink">+ add activity</button>
+      </div>
+      <div id="todayCompletionBanner" style="display:none;"></div>
+      <div id="todayScheduleList"></div>
+      <div id="todayFlexibleWrap" style="margin-top:14px; display:none;">
+        <div class="item-sub" style="margin-bottom:6px;">Flexible today</div>
+        <div id="todayFlexibleList"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="tab-routine" style="display:none;">
+    <!-- Filled in by renderRoutineTab() in js/app.js -->
   </div>
 
   <div id="tab-calendar" style="display:none;">
@@ -239,8 +261,6 @@
   </div>
 
   <div id="tab-gurus" style="display:none;">
-    <div class="gurus-bg" id="gurusBg"></div>
-    <div class="gurus-bg-scrim"></div>
     <div class="gurus-content">
       <div class="sec-head">
         <div>
@@ -335,6 +355,88 @@
       <button class="pill ghost" id="signOutBtn" type="button">Sign out</button>
       <button class="pill ghost" id="accountCloseBtn" type="button">Close</button>
     </div>
+  </div>
+</div>
+
+<!-- Floating Add Activity button -->
+<button class="fab" id="addActivityFab" title="Add Activity" aria-label="Add Activity" style="display:none;">+</button>
+
+<!-- Add / Edit Activity panel -->
+<div class="fullscreen sheet-overlay" id="activityPanel">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h3 class="serif" id="activityPanelTitle">Add Activity</h3>
+      <button class="fs-close sheet-close" id="activityPanelClose" type="button">✕</button>
+    </div>
+
+    <div class="auth-tabbar" id="activityModeTabs" style="margin-bottom:14px;">
+      <button class="auth-tab active" type="button" data-mode="quick">Quick Add</button>
+      <button class="auth-tab" type="button" data-mode="detailed">Detailed</button>
+    </div>
+
+    <div class="suggestion-chips" id="activitySuggestions"></div>
+
+    <form id="activityForm">
+      <input type="hidden" id="actEditId" value="">
+      <input type="text" id="actName" placeholder="Activity name, e.g. Exercise" required>
+
+      <div id="actDetailedFields" style="display:none;">
+        <textarea id="actDescription" class="act-textarea" placeholder="Optional description"></textarea>
+
+        <div class="field-row">
+          <div class="field-col" style="max-width:80px;">
+            <label class="field-label">Icon</label>
+            <input type="text" id="actIcon" maxlength="4" placeholder="🏃" style="text-align:center;">
+          </div>
+          <div class="field-col">
+            <label class="field-label">Category</label>
+            <select id="actCategory"></select>
+          </div>
+          <div class="field-col">
+            <label class="field-label">Priority</label>
+            <select id="actPriority">
+              <option value="high">High</option>
+              <option value="medium" selected>Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="field-label">Accent color</label>
+        <div class="color-swatches" id="actColorSwatches"></div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-col">
+          <label class="field-label">Start time</label>
+          <input type="time" id="actStartTime">
+        </div>
+        <div class="field-col">
+          <label class="field-label">Duration (minutes)</label>
+          <input type="number" id="actDuration" min="5" step="5" value="30">
+        </div>
+      </div>
+      <div class="empty-note" style="margin:-6px 0 12px;">Leave start time blank to keep this as a flexible task for today.</div>
+
+      <div id="actFrequencyFields" style="display:none;">
+        <label class="field-label">Repeat</label>
+        <div class="check-row" style="margin-bottom:8px; flex-direction:column; align-items:flex-start; gap:6px;">
+          <label><input type="radio" name="actFreq" value="daily" checked> Every day</label>
+          <label><input type="radio" name="actFreq" value="weekdays"> Weekdays only</label>
+          <label><input type="radio" name="actFreq" value="weekends"> Weekends only</label>
+          <label><input type="radio" name="actFreq" value="custom"> Custom days</label>
+        </div>
+        <div class="day-picker" id="actDayPicker" style="display:none;"></div>
+      </div>
+
+      <div class="form-actions" style="flex-wrap:wrap;">
+        <button class="pill" type="submit" id="actSave">Add to Routine</button>
+        <button class="pill ghost" type="button" id="actCancel">Cancel</button>
+        <button class="pill ghost" type="button" id="actDuplicate" style="display:none;">Duplicate</button>
+        <button class="pill ghost" type="button" id="actDelete" style="display:none;">Delete</button>
+      </div>
+    </form>
   </div>
 </div>
 

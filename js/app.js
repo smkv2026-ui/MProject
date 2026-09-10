@@ -7,7 +7,41 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   function userStorageKey(id){ return 'sadhana-data-'+id; }
 
   function defaultData(){
-    return { settings:{ theme:'light' }, japa:[], practice:[], books:[], learning:[], logs:{} };
+    return {
+      settings:{ theme:'light' },
+      japa:[], practice:[], books:[], learning:[], logs:{},
+      // Routine Scheduler: a single reusable activity model. A "flexible"
+      // (unscheduled-for-today) activity is just one whose
+      // schedule.startTime is null — there is no separate data source.
+      activities:[],
+      templates:[],
+      activeTemplateId:null,
+      // Optional display-time overrides for the four mandatory practices,
+      // used only to position/drag them on the Routine timeline; the
+      // practices themselves and their real timers/logs are untouched.
+      mandatorySchedule:{ japa:{}, practice:{}, reading:{}, learning:{} }
+    };
+  }
+  // Back-fills fields added after a profile's data was first created, so
+  // profiles saved before the Routine Scheduler existed still work.
+  function normalizeData(d){
+    if(!d || typeof d !== 'object') return defaultData();
+    if(!d.settings) d.settings = { theme:'light' };
+    if(!Array.isArray(d.japa)) d.japa = [];
+    if(!Array.isArray(d.practice)) d.practice = [];
+    if(!Array.isArray(d.books)) d.books = [];
+    if(!Array.isArray(d.learning)) d.learning = [];
+    if(!d.logs || typeof d.logs !== 'object') d.logs = {};
+    if(!Array.isArray(d.activities)) d.activities = [];
+    if(!Array.isArray(d.templates)) d.templates = [];
+    if(d.activeTemplateId === undefined) d.activeTemplateId = null;
+    if(!d.mandatorySchedule || typeof d.mandatorySchedule !== 'object'){
+      d.mandatorySchedule = { japa:{}, practice:{}, reading:{}, learning:{} };
+    }
+    ['japa','practice','reading','learning'].forEach(k=>{
+      if(!d.mandatorySchedule[k] || typeof d.mandatorySchedule[k] !== 'object') d.mandatorySchedule[k] = {};
+    });
+    return d;
   }
   let data = defaultData();
   let users = [];
@@ -25,8 +59,16 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   }
 
   function ensureDay(dateStr){
-    if(!data.logs[dateStr]) data.logs[dateStr] = { japa:{}, practice:{}, reading:{} };
+    if(!data.logs[dateStr]) data.logs[dateStr] = { japa:{}, practice:{}, reading:{}, activities:{} };
+    if(!data.logs[dateStr].activities) data.logs[dateStr].activities = {};
     return data.logs[dateStr];
+  }
+  function ensureActivityEntry(dateStr, activityId){
+    const day = ensureDay(dateStr);
+    if(!day.activities[activityId]){
+      day.activities[activityId] = { status:'pending', seconds:0, log:[], startedAt:null, completedAt:null };
+    }
+    return day.activities[activityId];
   }
   function ensureJapaEntry(dateStr, counterId, sandhya){
     const day = ensureDay(dateStr);
@@ -107,7 +149,6 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         activeGuruId = btn.dataset.guru;
         renderGuruTabbar();
         renderGuruTeachingsList();
-        renderGurusBackground();
       });
     });
   }
@@ -122,31 +163,22 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       el.innerHTML = '<div class="empty-note">'+(q ? 'No teachings match that search.' : 'No teachings from '+escapeHtml(guru.name)+' yet.')+'</div>';
       return;
     }
+    const photoHtml = guru.image
+      ? `<img class="quote-photo" src="${guru.image}" alt="${escapeHtml(guru.name)}">`
+      : `<span class="quote-photo placeholder">${escapeHtml((guru.name||'?').trim().charAt(0).toUpperCase()||'?')}</span>`;
     el.innerHTML = items.map(t=>`
       <div class="quote-entry">
-        <div class="qtext">${escapeHtml(t.text)}</div>
-        <div class="qmeta">— ${escapeHtml(guru.name)}${t.date ? ' · '+t.date : ''}</div>
+        ${photoHtml}
+        <div class="quote-body">
+          <div class="qtext">${escapeHtml(t.text)}</div>
+          <div class="qmeta">— ${escapeHtml(guru.name)}${t.date ? ' · '+t.date : ''}</div>
+        </div>
       </div>`).join('');
-  }
-
-  function renderGurusBackground(){
-    const bgEl = document.getElementById('gurusBg');
-    const tabEl = document.getElementById('tab-gurus');
-    const guru = gurus.find(g=>g.id===activeGuruId);
-    if(guru && guru.image){
-      bgEl.style.backgroundImage = 'url("'+guru.image+'")';
-      bgEl.classList.add('show');
-      tabEl.classList.add('has-bg');
-    } else {
-      bgEl.classList.remove('show');
-      tabEl.classList.remove('has-bg');
-    }
   }
 
   function renderGurusTab(){
     renderGuruTabbar();
     renderGuruTeachingsList();
-    renderGurusBackground();
   }
 
   document.getElementById('gurusSearch').addEventListener('input', (e)=>{
@@ -318,6 +350,10 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
 
   function finalizeAllRunning(){
     Object.keys(runningTimers).forEach(key=>{
+      if(key.startsWith('activity|')){
+        completeActivityTimer(key.slice('activity|'.length));
+        return;
+      }
       const idx = key.indexOf('|');
       stopPractice(key.slice(0,idx), key.slice(idx+1));
     });
@@ -331,11 +367,12 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     data = defaultData();
     try{
       const res = await cloudGet(userStorageKey(id));
-      if(res && res.value) data = JSON.parse(res.value);
+      if(res && res.value) data = normalizeData(JSON.parse(res.value));
     }catch(e){ /* first time for this user */ }
     applyTheme();
     document.getElementById('userSelectScreen').style.display = 'none';
     document.getElementById('appScreen').style.display = '';
+    document.getElementById('addActivityFab').style.display = '';
     document.getElementById('userSubtitle').textContent = 'daily practice tracker · '+user.name;
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     document.querySelector('.tab-btn[data-tab="today"]').classList.add('active');
@@ -348,6 +385,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   document.getElementById('switchUserBtn').addEventListener('click', ()=>{
     finalizeAllRunning();
     document.getElementById('appScreen').style.display='none';
+    document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
     renderUserGrid();
   });
@@ -399,12 +437,14 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   document.addEventListener('sadhana-auth-ready', ()=>{ initApp(); });
   document.addEventListener('sadhana-workspace-changed', ()=>{
     document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('addActivityFab').style.display = 'none';
     document.getElementById('userSelectScreen').style.display = '';
     resetAppState();
     initApp();
   });
   document.addEventListener('sadhana-before-signout', resetAppState);
   document.addEventListener('sadhana-signed-out', ()=>{
+    document.getElementById('addActivityFab').style.display = 'none';
     document.getElementById('userGrid').innerHTML = '';
   });
 
@@ -423,8 +463,10 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById('tab-today').style.display = tab==='today' ? '' : 'none';
+      document.getElementById('tab-routine').style.display = tab==='routine' ? '' : 'none';
       document.getElementById('tab-calendar').style.display = tab==='calendar' ? '' : 'none';
       document.getElementById('tab-gurus').style.display = tab==='gurus' ? '' : 'none';
+      if(tab==='routine') renderRoutineTab();
       if(tab==='calendar') renderCalendar();
       if(tab==='gurus') renderGurusTab();
     });
@@ -501,7 +543,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       await saveUsersNow(users);
 
       for(const u of users){
-        const uData = parsed.usersData[u.id] || defaultData();
+        const uData = normalizeData(parsed.usersData[u.id] || defaultData());
         await cloudSet(userStorageKey(u.id), JSON.stringify(uData));
       }
 
@@ -536,6 +578,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       document.getElementById(btn.dataset.close).classList.remove('open');
     });
   });
+  document.getElementById('todayAddActivityLink').addEventListener('click', ()=> openAddActivityPanel());
 
   /* ---------- Japa: create / edit ---------- */
   document.getElementById('japaSandhyaApplicable').addEventListener('change', (e)=>{
@@ -717,6 +760,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       const elapsed = (Date.now()-fsState.startTime)/1000;
       document.getElementById('fsTimer').textContent = fmtTime(fsState.baseSeconds + elapsed);
       tickLiveCalendarCell();
+      tickRoutineNowLine();
     }, 1000);
   }
   function closeJapaFullscreen(){
@@ -856,6 +900,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         el.textContent = fmtTime(elapsed);
       }
       tickLiveCalendarCell();
+      tickRoutineNowLine();
     }, 1000);
   }
   function stopPractice(practiceId, sandhya){
@@ -872,6 +917,73 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     delete runningTimers[key];
     save(); renderPractice(); renderCalSummary();
     if(document.getElementById('tab-calendar').style.display !== 'none') renderCalendar();
+  }
+
+  /* ---------- Routine Scheduler activity timers ----------
+     Reuses the exact same runningTimers map and tick pattern as the
+     mandatory Practice timer above (startPractice/stopPractice), just
+     keyed as 'activity|<id>' and writing into logs[date].activities
+     instead of logs[date].practice[..][sandhya]. There is no separate
+     timer system for custom activities. */
+  function refreshActivityViews(){
+    renderTodaySchedule();
+    if(document.getElementById('tab-routine') && document.getElementById('tab-routine').style.display !== 'none') renderRoutineTab();
+    renderCalSummary();
+  }
+
+  function startActivityTimer(activityId){
+    const key = 'activity|'+activityId;
+    if(runningTimers[key]) return;
+    const t = todayStr();
+    const entry = ensureActivityEntry(t, activityId);
+    if(!entry.startedAt) entry.startedAt = Date.now();
+    entry.status = 'in-progress';
+    runningTimers[key] = { startTime: Date.now() };
+    save();
+    refreshActivityViews();
+    runningTimers[key].interval = setInterval(()=>{
+      const el = document.getElementById('run-'+key);
+      if(el){
+        const elapsed = (Date.now()-runningTimers[key].startTime)/1000;
+        el.textContent = fmtTime(elapsed);
+      }
+      tickLiveCalendarCell();
+      tickRoutineNowLine();
+    }, 1000);
+  }
+
+  function pauseActivityTimer(activityId){
+    const key = 'activity|'+activityId;
+    const rt = runningTimers[key];
+    if(!rt) return;
+    clearInterval(rt.interval);
+    const elapsed = (Date.now()-rt.startTime)/1000;
+    const entry = ensureActivityEntry(todayStr(), activityId);
+    entry.log = entry.log || [];
+    entry.log.push({ seconds: elapsed, endedAt: Date.now() });
+    entry.seconds += elapsed;
+    entry.status = 'paused';
+    delete runningTimers[key];
+    save();
+    refreshActivityViews();
+  }
+
+  function completeActivityTimer(activityId){
+    const key = 'activity|'+activityId;
+    const entry = ensureActivityEntry(todayStr(), activityId);
+    const rt = runningTimers[key];
+    if(rt){
+      clearInterval(rt.interval);
+      const elapsed = (Date.now()-rt.startTime)/1000;
+      entry.log = entry.log || [];
+      entry.log.push({ seconds: elapsed, endedAt: Date.now() });
+      entry.seconds += elapsed;
+      delete runningTimers[key];
+    }
+    entry.status = 'done';
+    entry.completedAt = Date.now();
+    save();
+    refreshActivityViews();
   }
 
   /* ---------- Reading ---------- */
@@ -1012,6 +1124,1226 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         save(); renderLearning();
       });
     });
+  }
+
+  /* ======================================================================
+     Routine Scheduler
+     A single reusable activity model shared by Today's Schedule and the
+     Routine tab's timeline. A "flexible" (unscheduled) activity is simply
+     one whose schedule.startTime is null — there is no separate data
+     source for flexible vs. scheduled vs. mandatory-linked activities.
+     Timers reuse startActivityTimer/pauseActivityTimer/completeActivityTimer
+     (defined above, next to stopPractice) which share the runningTimers map
+     with the mandatory Practice timer.
+     ====================================================================== */
+
+  const ACTIVITY_CATEGORIES = [
+    {key:'spiritual', label:'Spiritual', color:'#B8863B'},
+    {key:'health',    label:'Health',    color:'#66805A'},
+    {key:'work',      label:'Work',      color:'#33415C'},
+    {key:'learning',  label:'Learning',  color:'#A2543A'},
+    {key:'personal',  label:'Personal',  color:'#5C6E93'},
+    {key:'other',     label:'Other',     color:'#8A8370'}
+  ];
+  const ACTIVITY_PRIORITY_ORDER = { high:0, medium:1, low:2 };
+  const ACTIVITY_PRIORITY_LABEL = { high:'High priority', medium:'Medium priority', low:'Low priority' };
+  const ACTIVITY_SUGGESTIONS = [
+    {name:'Exercise', icon:'🏃', category:'health', durationMin:45},
+    {name:'Meditation', icon:'🧘', category:'spiritual', durationMin:20},
+    {name:'Yoga', icon:'🤸', category:'health', durationMin:30},
+    {name:'Walking', icon:'🚶', category:'health', durationMin:30},
+    {name:'Study', icon:'📖', category:'learning', durationMin:60},
+    {name:'Office Work', icon:'💼', category:'work', durationMin:480},
+    {name:'Journaling', icon:'📝', category:'personal', durationMin:15},
+    {name:'Family Time', icon:'👨‍👩‍👧', category:'personal', durationMin:60},
+    {name:'Sleep', icon:'😴', category:'health', durationMin:480},
+    {name:'Sanskrit Practice', icon:'🕉', category:'spiritual', durationMin:20},
+    {name:'Pranayama', icon:'🌬️', category:'spiritual', durationMin:15},
+    {name:'Seva', icon:'🤝', category:'spiritual', durationMin:60}
+  ];
+  const ROUTINE_PRESETS = [
+    { name:'Spiritual Routine', activities:[
+      {name:'Early Wake Up', icon:'🌅', category:'spiritual', priority:'high', durationMin:15, schedule:{startTime:'05:00', frequency:'daily'}},
+      {name:'Meditation', icon:'🧘', category:'spiritual', priority:'high', durationMin:20, schedule:{startTime:'05:30', frequency:'daily'}},
+      {name:'Reflection', icon:'📓', category:'spiritual', priority:'medium', durationMin:15, schedule:{startTime:'21:30', frequency:'daily'}}
+    ]},
+    { name:'Productive Work Day', activities:[
+      {name:'Morning Routine', icon:'☀️', category:'personal', priority:'medium', durationMin:30, schedule:{startTime:'06:30', frequency:'weekdays'}},
+      {name:'Deep Work', icon:'💻', category:'work', priority:'high', durationMin:180, schedule:{startTime:'09:00', frequency:'weekdays'}},
+      {name:'Meetings', icon:'🗣️', category:'work', priority:'medium', durationMin:60, schedule:{startTime:'14:00', frequency:'weekdays'}},
+      {name:'Exercise', icon:'🏃', category:'health', priority:'medium', durationMin:45, schedule:{startTime:'18:00', frequency:'weekdays'}}
+    ]},
+    { name:'Balanced Routine', activities:[
+      {name:'Exercise', icon:'🏃', category:'health', priority:'medium', durationMin:45, schedule:{startTime:'06:30', frequency:'daily'}},
+      {name:'Work', icon:'💼', category:'work', priority:'high', durationMin:300, schedule:{startTime:'09:30', frequency:'weekdays'}},
+      {name:'Family Time', icon:'👨‍👩‍👧', category:'personal', priority:'medium', durationMin:60, schedule:{startTime:'19:00', frequency:'daily'}},
+      {name:'Rest', icon:'😴', category:'health', priority:'low', durationMin:30, schedule:{startTime:'21:30', frequency:'daily'}}
+    ]}
+  ];
+
+  function categoryMeta(key){ return ACTIVITY_CATEGORIES.find(c=>c.key===key) || ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length-1]; }
+  function categoryColor(key){ return categoryMeta(key).color; }
+  function categoryLabel(key){ return categoryMeta(key).label; }
+  function priorityLabel(p){ return ACTIVITY_PRIORITY_LABEL[p] || ACTIVITY_PRIORITY_LABEL.medium; }
+
+  function timeToMin(t){ if(!t) return null; const parts = t.split(':'); return (+parts[0])*60 + (+parts[1]); }
+  function minToTime(min){ min = ((Math.round(min)%1440)+1440)%1440; const h=Math.floor(min/60), m=min%60; return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0'); }
+  function fmtTimeLabel(t){
+    const min = timeToMin(t);
+    if(min==null) return '';
+    let h = Math.floor(min/60), m = min%60;
+    const ampm = h>=12 ? 'PM' : 'AM';
+    h = h%12; if(h===0) h=12;
+    return h+':'+String(m).padStart(2,'0')+' '+ampm;
+  }
+  function activityEndTime(activity){
+    const sch = activity.schedule || {};
+    if(sch.endTime) return sch.endTime;
+    if(sch.startTime!=null && activity.durationMin) return minToTime(timeToMin(sch.startTime) + activity.durationMin);
+    return null;
+  }
+
+  function isActivityDueOn(activity, dateStr){
+    const sch = activity.schedule || {};
+    const freq = sch.frequency || 'daily';
+    const dow = new Date(dateStr+'T00:00:00').getDay();
+    if(freq==='weekdays') return dow>=1 && dow<=5;
+    if(freq==='weekends') return dow===0 || dow===6;
+    if(freq==='custom') return Array.isArray(sch.days) && sch.days.includes(dow);
+    return true; // 'daily' or unrecognized -> treat as daily
+  }
+  function getActivitiesDueOn(dateStr){ return data.activities.filter(a=>isActivityDueOn(a, dateStr)); }
+  function getActivitiesDueToday(){ return getActivitiesDueOn(todayStr()); }
+
+  function sortActivitiesForDisplay(list){
+    return list.slice().sort((a,b)=>{
+      const aTimed = !!(a.schedule && a.schedule.startTime);
+      const bTimed = !!(b.schedule && b.schedule.startTime);
+      if(aTimed !== bTimed) return aTimed ? -1 : 1;
+      if(aTimed && bTimed){
+        const ta = timeToMin(a.schedule.startTime), tb = timeToMin(b.schedule.startTime);
+        if(ta !== tb) return ta - tb;
+      }
+      const pa = ACTIVITY_PRIORITY_ORDER[a.priority] ?? 1;
+      const pb = ACTIVITY_PRIORITY_ORDER[b.priority] ?? 1;
+      if(pa !== pb) return pa - pb;
+      return (a.order||0) - (b.order||0);
+    });
+  }
+
+  function createActivity(fields){
+    const activity = Object.assign({
+      id: uid(),
+      name: '', description:'', icon:'✦', category:'personal', priority:'medium',
+      color: null, durationMin: 30,
+      schedule: { startTime:null, endTime:null, frequency:'daily', days:[] },
+      order: data.activities.length,
+      locked:false,
+      createdAt: Date.now(), updatedAt: Date.now()
+    }, fields);
+    if(fields && fields.schedule) activity.schedule = Object.assign({startTime:null, endTime:null, frequency:'daily', days:[]}, fields.schedule);
+    data.activities.push(activity);
+    save();
+    return activity;
+  }
+  function updateActivity(id, fields){
+    const a = data.activities.find(x=>x.id===id);
+    if(!a) return null;
+    if(fields.schedule) fields = Object.assign({}, fields, { schedule: Object.assign({}, a.schedule, fields.schedule) });
+    Object.assign(a, fields, {updatedAt:Date.now()});
+    save();
+    return a;
+  }
+  function deleteActivity(id){
+    const a = data.activities.find(x=>x.id===id);
+    if(a && a.locked) return; // mandatory-linked activities are never deletable
+    data.activities = data.activities.filter(x=>x.id!==id);
+    save();
+  }
+  function duplicateActivity(id, overrides){
+    const a = data.activities.find(x=>x.id===id);
+    if(!a) return null;
+    const copy = Object.assign({}, a, overrides||{}, {id:uid(), locked:false, order:data.activities.length, createdAt:Date.now(), updatedAt:Date.now()});
+    if(!overrides || !overrides.name) copy.name = a.name;
+    data.activities.push(copy);
+    save();
+    return copy;
+  }
+
+  /* ---------- Today's Schedule (in the Today tab, after the mandatory sections) ---------- */
+  function renderActivityRow(activity, dateStr, opts){
+    opts = opts || {};
+    const day = data.logs[dateStr];
+    const entry = (day && day.activities && day.activities[activity.id]) || {status:'pending', seconds:0};
+    const key = 'activity|'+activity.id;
+    const running = !!runningTimers[key];
+    const color = activity.color || categoryColor(activity.category);
+    const end = activityEndTime(activity);
+    const timeLabel = opts.flexible ? 'Flexible — no fixed time' : (fmtTimeLabel(activity.schedule.startTime) + (end ? ' – '+fmtTimeLabel(end) : ''));
+
+    let metaHtml, actionsHtml;
+    if(running){
+      metaHtml = `<span class="t-meta live" id="run-${key}">${fmtTime(0)}</span>`;
+      actionsHtml = `<button class="pill ghost" data-act="pause" data-id="${activity.id}">Pause</button>
+        <button class="pill done-btn" data-act="complete" data-id="${activity.id}">Complete</button>`;
+    } else if(entry.status==='done'){
+      metaHtml = `<span class="t-meta">✓ ${fmtTime(entry.seconds)}</span>`;
+      actionsHtml = '';
+    } else if(entry.status==='skipped'){
+      metaHtml = `<span class="t-meta">Skipped today</span>`;
+      actionsHtml = `<button class="pill ghost" data-act="start" data-id="${activity.id}">Start</button>`;
+    } else if(entry.seconds>0){
+      metaHtml = `<span class="t-meta">${fmtTime(entry.seconds)} so far</span>`;
+      actionsHtml = `<button class="pill" data-act="resume" data-id="${activity.id}">Resume</button>
+        <button class="pill done-btn" data-act="complete" data-id="${activity.id}">Complete</button>`;
+    } else {
+      metaHtml = `<span class="t-meta">not started</span>`;
+      actionsHtml = `<button class="pill" data-act="start" data-id="${activity.id}">Start</button>`;
+    }
+    if(opts.flexible){
+      actionsHtml += `<input type="time" class="flex-time-input" data-flex-schedule="${activity.id}" title="Schedule this for a specific time today">`;
+    }
+    const editBtn = activity.locked
+      ? `<span class="lock-badge" title="Core Practice — always available, cannot be deleted">🔒 Core</span>`
+      : `<button class="edit-icon-btn activity-edit-btn" data-id="${activity.id}" title="Edit activity">✎</button>`;
+    return `<div class="item-row activity-row" data-activity="${activity.id}">
+      <div class="row-flex">
+        <span class="item-title"><span class="activity-dot" style="background:${color}"></span>${activity.icon?escapeHtml(activity.icon)+' ':''}${escapeHtml(activity.name)}</span>
+        ${editBtn}
+      </div>
+      <div class="item-sub">${timeLabel} · ${categoryLabel(activity.category)} · ${priorityLabel(activity.priority)}</div>
+      <div class="task-list">
+        <div class="task-item ${entry.status==='done'?'done':''}">
+          <div class="t-left"><span class="dot"></span><span class="t-label">${escapeHtml(activity.description||'')||'&nbsp;'}</span></div>
+          <div style="display:flex;align-items:center;gap:8px;">${metaHtml}${actionsHtml}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function wireActivityRowActions(container){
+    container.querySelectorAll('[data-act="start"], [data-act="resume"]').forEach(b=>{
+      b.addEventListener('click', ()=>startActivityTimer(b.dataset.id));
+    });
+    container.querySelectorAll('[data-act="pause"]').forEach(b=>{
+      b.addEventListener('click', ()=>pauseActivityTimer(b.dataset.id));
+    });
+    container.querySelectorAll('[data-act="complete"]').forEach(b=>{
+      b.addEventListener('click', ()=>completeActivityTimer(b.dataset.id));
+    });
+    container.querySelectorAll('.activity-edit-btn').forEach(b=>{
+      b.addEventListener('click', (ev)=>{ ev.stopPropagation(); openActivityEditor(b.dataset.id); });
+    });
+    container.querySelectorAll('[data-flex-schedule]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        if(!inp.value) return;
+        updateActivity(inp.dataset.flexSchedule, { schedule: { startTime: inp.value } });
+        refreshActivityViews();
+      });
+    });
+  }
+
+  function renderTodaySchedule(){
+    const listEl = document.getElementById('todayScheduleList');
+    if(!listEl) return;
+    const flexEl = document.getElementById('todayFlexibleList');
+    const flexWrap = document.getElementById('todayFlexibleWrap');
+    const t = todayStr();
+    const due = getActivitiesDueOn(t);
+    const timed = sortActivitiesForDisplay(due.filter(a=>a.schedule && a.schedule.startTime));
+    const flexible = due.filter(a=>!a.schedule || !a.schedule.startTime);
+
+    if(timed.length===0){
+      listEl.innerHTML = '<div class="card-list"><div class="item-row"><span class="empty-note">No scheduled activities for today yet — tap "+ add activity" or open the Routine tab.</span></div></div>';
+    } else {
+      listEl.innerHTML = '<div class="card-list">' + timed.map(a=>renderActivityRow(a, t)).join('') + '</div>';
+    }
+    wireActivityRowActions(listEl);
+
+    if(flexible.length===0){
+      flexWrap.style.display = 'none';
+    } else {
+      flexWrap.style.display = '';
+      flexEl.innerHTML = '<div class="card-list">' + flexible.map(a=>renderActivityRow(a, t, {flexible:true})).join('') + '</div>';
+      wireActivityRowActions(flexEl);
+    }
+
+    renderTodayCompletionBanner(due, t);
+  }
+
+  function renderTodayCompletionBanner(dueActivities, dateStr){
+    const el = document.getElementById('todayCompletionBanner');
+    if(!el) return;
+    const day = data.logs[dateStr];
+    const timed = dueActivities.filter(a=>a.schedule && a.schedule.startTime);
+    if(timed.length===0){ el.innerHTML=''; el.style.display='none'; return; }
+    const doneCount = timed.filter(a=> day && day.activities && day.activities[a.id] && day.activities[a.id].status==='done').length;
+    if(doneCount < timed.length){ el.innerHTML=''; el.style.display='none'; return; }
+    let totalSeconds = 0, longest = null;
+    timed.forEach(a=>{
+      const e = day.activities[a.id];
+      totalSeconds += e.seconds||0;
+      if(!longest || (e.seconds||0) > longest.seconds) longest = {name:a.name, seconds:e.seconds||0};
+    });
+    el.style.display = '';
+    el.innerHTML = `<div class="completion-banner">
+      <div class="completion-title">✨ Today's Routine Complete</div>
+      <div class="completion-sub">You completed ${doneCount} of ${timed.length} planned activities.</div>
+      <div class="completion-stats">
+        <span>${fmtShort(totalSeconds)} focused time</span>
+        ${longest ? `<span>Longest: ${escapeHtml(longest.name)} (${fmtShort(longest.seconds)})</span>` : ''}
+      </div>
+    </div>`;
+  }
+
+  /* ---------- Add / Edit Activity panel (Quick Add + Detailed) ---------- */
+  function initActivityPanelStatic(){
+    const catSel = document.getElementById('actCategory');
+    catSel.innerHTML = ACTIVITY_CATEGORIES.map(c=>`<option value="${c.key}">${escapeHtml(c.label)}</option>`).join('');
+
+    const swatchWrap = document.getElementById('actColorSwatches');
+    const swatchColors = [null, ...ACTIVITY_CATEGORIES.map(c=>c.color)];
+    swatchWrap.innerHTML = swatchColors.map(c=>
+      `<button type="button" class="color-swatch${c?'':' auto'}" data-color="${c||''}" style="${c?'background:'+c+';':''}" title="${c?c:'Match category color'}">${c?'':'auto'}</button>`
+    ).join('');
+    swatchWrap.querySelectorAll('.color-swatch').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        swatchWrap.querySelectorAll('.color-swatch').forEach(b=>b.classList.remove('selected'));
+        btn.classList.add('selected');
+        swatchWrap.dataset.selected = btn.dataset.color;
+      });
+    });
+
+    const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    document.getElementById('actDayPicker').innerHTML = dayLabels.map((d,i)=>
+      `<label class="day-chip"><input type="checkbox" value="${i}">${d}</label>`
+    ).join('');
+
+    const sugWrap = document.getElementById('activitySuggestions');
+    sugWrap.innerHTML = ACTIVITY_SUGGESTIONS.map(s=>
+      `<button type="button" class="suggestion-chip" data-name="${escapeHtml(s.name)}" data-icon="${s.icon}" data-category="${s.category}" data-duration="${s.durationMin}">${s.icon} ${escapeHtml(s.name)}</button>`
+    ).join('');
+    sugWrap.querySelectorAll('.suggestion-chip').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.getElementById('actName').value = btn.dataset.name;
+        document.getElementById('actIcon').value = btn.dataset.icon;
+        document.getElementById('actCategory').value = btn.dataset.category;
+        document.getElementById('actDuration').value = btn.dataset.duration;
+      });
+    });
+
+    document.getElementById('actFrequencyFields').addEventListener('change', ()=>{
+      const checked = document.querySelector('input[name="actFreq"]:checked');
+      document.getElementById('actDayPicker').style.display = (checked && checked.value==='custom') ? '' : 'none';
+    });
+
+    document.querySelectorAll('#activityModeTabs .auth-tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('#activityModeTabs .auth-tab').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        const detailed = btn.dataset.mode==='detailed';
+        document.getElementById('actDetailedFields').style.display = detailed ? '' : 'none';
+        document.getElementById('actFrequencyFields').style.display = detailed ? '' : 'none';
+        document.getElementById('activitySuggestions').style.display = detailed ? 'none' : '';
+      });
+    });
+  }
+  initActivityPanelStatic();
+
+  function setActivityMode(mode){
+    const btn = document.querySelector(`#activityModeTabs .auth-tab[data-mode="${mode}"]`);
+    if(btn) btn.click();
+  }
+
+  function resetActivityForm(){
+    document.getElementById('actEditId').value = '';
+    document.getElementById('actName').value = '';
+    document.getElementById('actName').disabled = false;
+    document.getElementById('actDescription').value = '';
+    document.getElementById('actIcon').value = '';
+    document.getElementById('actCategory').value = 'personal';
+    document.getElementById('actPriority').value = 'medium';
+    document.getElementById('actStartTime').value = '';
+    document.getElementById('actDuration').value = '30';
+    document.querySelectorAll('input[name="actFreq"]').forEach(r=> r.checked = (r.value==='daily'));
+    document.querySelectorAll('#actDayPicker input').forEach(cb=>cb.checked=false);
+    document.getElementById('actDayPicker').style.display = 'none';
+    document.getElementById('actColorSwatches').querySelectorAll('.color-swatch').forEach(b=>b.classList.remove('selected'));
+    document.getElementById('actColorSwatches').dataset.selected = '';
+    document.getElementById('actDetailedFields').querySelectorAll('input,select,textarea').forEach(el=> el.disabled = false);
+    document.getElementById('actDuplicate').style.display = 'none';
+    document.getElementById('actDelete').style.display = 'none';
+    document.getElementById('actSave').textContent = 'Add to Routine';
+    document.getElementById('activityPanelTitle').textContent = 'Add Activity';
+  }
+
+  function openAddActivityPanel(prefill){
+    resetActivityForm();
+    setActivityMode('quick');
+    if(prefill && prefill.startTime) document.getElementById('actStartTime').value = prefill.startTime;
+    document.getElementById('activityPanel').classList.add('open');
+    setTimeout(()=>document.getElementById('actName').focus(), 50);
+  }
+
+  function openActivityEditor(id){
+    const a = data.activities.find(x=>x.id===id);
+    if(!a) return;
+    resetActivityForm();
+    setActivityMode('detailed');
+    document.getElementById('actEditId').value = a.id;
+    document.getElementById('actName').value = a.name;
+    document.getElementById('actDescription').value = a.description||'';
+    document.getElementById('actIcon').value = a.icon||'';
+    document.getElementById('actCategory').value = a.category||'personal';
+    document.getElementById('actPriority').value = a.priority||'medium';
+    document.getElementById('actStartTime').value = (a.schedule&&a.schedule.startTime)||'';
+    document.getElementById('actDuration').value = a.durationMin||30;
+    const freq = (a.schedule&&a.schedule.frequency)||'daily';
+    document.querySelectorAll('input[name="actFreq"]').forEach(r=> r.checked = (r.value===freq));
+    document.getElementById('actDayPicker').style.display = (freq==='custom') ? '' : 'none';
+    const days = (a.schedule&&a.schedule.days)||[];
+    document.querySelectorAll('#actDayPicker input').forEach(cb=> cb.checked = days.includes(+cb.value));
+    if(a.color){
+      const swatch = document.querySelector(`#actColorSwatches .color-swatch[data-color="${a.color}"]`);
+      if(swatch) swatch.classList.add('selected');
+      document.getElementById('actColorSwatches').dataset.selected = a.color;
+    }
+    document.getElementById('actSave').textContent = 'Save Changes';
+    document.getElementById('activityPanelTitle').textContent = a.locked ? 'Edit Core Practice time' : 'Edit Activity';
+    if(!a.locked){
+      document.getElementById('actDuplicate').style.display = '';
+      document.getElementById('actDelete').style.display = '';
+    } else {
+      // Core practices keep their name/category/etc. — only time, duration
+      // and frequency are editable from here, per the "Core Practice" rule.
+      document.getElementById('actName').disabled = true;
+      document.getElementById('actDetailedFields').querySelectorAll('input,select,textarea').forEach(el=> el.disabled = true);
+    }
+    document.getElementById('activityPanel').classList.add('open');
+  }
+
+  function closeActivityPanel(){
+    document.getElementById('activityPanel').classList.remove('open');
+  }
+  document.getElementById('activityPanelClose').addEventListener('click', closeActivityPanel);
+  document.getElementById('actCancel').addEventListener('click', closeActivityPanel);
+  document.getElementById('addActivityFab').addEventListener('click', ()=> openAddActivityPanel());
+
+  document.getElementById('actDelete').addEventListener('click', ()=>{
+    const id = document.getElementById('actEditId').value;
+    if(!id) return;
+    if(!confirm('Delete this activity? This cannot be undone.')) return;
+    deleteActivity(id);
+    closeActivityPanel();
+    refreshActivityViews();
+  });
+  document.getElementById('actDuplicate').addEventListener('click', ()=>{
+    const id = document.getElementById('actEditId').value;
+    if(!id) return;
+    duplicateActivity(id, {name: (data.activities.find(a=>a.id===id)||{}).name + ' (copy)'});
+    closeActivityPanel();
+    refreshActivityViews();
+  });
+
+  document.getElementById('activityForm').addEventListener('submit', (e)=>{
+    e.preventDefault();
+    const editId = document.getElementById('actEditId').value;
+    const existing = editId ? data.activities.find(a=>a.id===editId) : null;
+
+    if(existing && existing.locked){
+      const startTimeRaw = document.getElementById('actStartTime').value;
+      const duration = Math.max(5, parseInt(document.getElementById('actDuration').value,10) || existing.durationMin || 30);
+      updateActivity(editId, { durationMin: duration, schedule: { startTime: startTimeRaw || null } });
+      closeActivityPanel();
+      refreshActivityViews();
+      return;
+    }
+
+    const name = document.getElementById('actName').value.trim();
+    if(!name) return;
+    const startTimeRaw = document.getElementById('actStartTime').value;
+    const duration = Math.max(5, parseInt(document.getElementById('actDuration').value,10) || 30);
+    const freqEl = document.querySelector('input[name="actFreq"]:checked');
+    const freq = freqEl ? freqEl.value : 'daily';
+    const days = freq==='custom' ? Array.from(document.querySelectorAll('#actDayPicker input:checked')).map(cb=>+cb.value) : [];
+    const selectedColor = document.getElementById('actColorSwatches').dataset.selected || null;
+    const fields = {
+      name,
+      description: document.getElementById('actDescription').value.trim(),
+      icon: document.getElementById('actIcon').value.trim() || '✦',
+      category: document.getElementById('actCategory').value || 'personal',
+      priority: document.getElementById('actPriority').value || 'medium',
+      color: selectedColor,
+      durationMin: duration,
+      schedule: { startTime: startTimeRaw || null, endTime:null, frequency: freq, days }
+    };
+    if(editId){
+      updateActivity(editId, fields);
+    } else {
+      createActivity(fields);
+    }
+    closeActivityPanel();
+    refreshActivityViews();
+  });
+
+  /* ======================================================================
+     Routine tab: visual daily/weekly/overview timeline, drag-and-drop
+     scheduling, conflict detection, missed-activity handling, templates
+     and analytics — all built on the same activity model and block data
+     above. Mandatory Japa/Practice sessions are represented as blocks
+     computed live from data.japa/data.practice (never duplicated into
+     data.activities); Reading/Learning have no time-of-day concept in the
+     existing app, so they stay in a pinned summary strip instead of being
+     forced onto the timeline.
+     Simplifications vs. the full brief (documented in BRD.md): the Weekly
+     view is click-to-jump-and-edit rather than true drag-across-days, and
+     there is no dedicated multi-year Insights tab — analytics here cover
+     the current day only.
+     ====================================================================== */
+  const TIMELINE_START_HOUR = 4;
+  const TIMELINE_END_HOUR = 24;
+  const PX_PER_MIN = 1;
+  const DEFAULT_SANDHYA_TIME = { morning:'06:00', afternoon:'13:00', evening:'18:00' };
+  let routineSnapMin = 15;
+  let routineView = 'daily';
+  let routineDayOffset = 0;
+  let routineHeaderBuilt = false;
+  let routineNowInterval = null;
+
+  function routineDateForOffset(offset){
+    const d = new Date();
+    d.setDate(d.getDate()+offset);
+    return todayStr(d);
+  }
+
+  function getMandatoryTimeInfo(kind, sandhya){
+    const rec = data.mandatorySchedule[kind] && data.mandatorySchedule[kind][sandhya];
+    return { time: (rec && rec.time) || DEFAULT_SANDHYA_TIME[sandhya], durationMin: (rec && rec.durationMin) || 30 };
+  }
+  function setMandatoryTimeInfo(kind, sandhya, patch){
+    if(!data.mandatorySchedule[kind]) data.mandatorySchedule[kind] = {};
+    data.mandatorySchedule[kind][sandhya] = Object.assign({}, getMandatoryTimeInfo(kind, sandhya), patch);
+    save();
+  }
+
+  function getMandatoryBlocksForDate(dateStr){
+    const blocks = [];
+    const day = data.logs[dateStr];
+    [['japa', data.japa], ['practice', data.practice]].forEach(([kind, list])=>{
+      list.forEach(item=>{
+        (item.sandhyas||[]).forEach(sandhya=>{
+          if(sandhya==='any') return; // no time-of-day concept for sandhya-not-applicable items
+          const info = getMandatoryTimeInfo(kind, sandhya);
+          const bucket = day && day[kind] && day[kind][item.id] && day[kind][item.id][sandhya];
+          const seconds = bucket ? (bucket.seconds||0) : 0;
+          const runningKey = item.id+'|'+sandhya;
+          blocks.push({
+            key: kind+':'+item.id+':'+sandhya,
+            kind:'mandatory', subtype:kind, refId:item.id, sandhya,
+            name:item.name, icon: kind==='japa' ? '📿' : '🧘',
+            color: kind==='japa' ? '#B8863B' : '#66805A',
+            startTime: info.time,
+            durationMin: Math.max(15, seconds>0 ? Math.round(seconds/60) : info.durationMin),
+            locked:true, running: !!runningTimers[runningKey], seconds,
+            done: seconds>0 && !runningTimers[runningKey]
+          });
+        });
+      });
+    });
+    return blocks;
+  }
+
+  function getCustomBlocksForDate(dateStr){
+    const day = data.logs[dateStr];
+    return getActivitiesDueOn(dateStr).filter(a=>a.schedule && a.schedule.startTime).map(a=>{
+      const entry = day && day.activities && day.activities[a.id];
+      const key = 'activity|'+a.id;
+      return {
+        key:'activity:'+a.id,
+        kind:'custom', subtype:'activity', refId:a.id,
+        name:a.name, icon:a.icon||'✦', color:a.color||categoryColor(a.category),
+        startTime:a.schedule.startTime, durationMin:a.durationMin||30,
+        locked:false, priority:a.priority,
+        running: !!runningTimers[key], seconds: entry ? (entry.seconds||0) : 0,
+        status: entry ? entry.status : 'pending',
+        done: !!(entry && entry.status==='done')
+      };
+    });
+  }
+
+  function markConflicts(blocks){
+    const timed = blocks.filter(b=>b.startTime!=null).sort((a,b)=>timeToMin(a.startTime)-timeToMin(b.startTime));
+    timed.forEach(b=>{ b.conflict=false; b.conflictNames=[]; });
+    for(let i=0;i<timed.length;i++){
+      for(let j=i+1;j<timed.length;j++){
+        const aStart=timeToMin(timed[i].startTime), aEnd=aStart+timed[i].durationMin;
+        const bStart=timeToMin(timed[j].startTime), bEnd=bStart+timed[j].durationMin;
+        if(aStart<bEnd && bStart<aEnd){
+          timed[i].conflict=true; timed[i].conflictNames.push(timed[j].name);
+          timed[j].conflict=true; timed[j].conflictNames.push(timed[i].name);
+        }
+      }
+    }
+    return blocks;
+  }
+
+  // Assigns each timed block a column (b._col) and how many columns its
+  // overlap cluster needs (b._cols), so overlapping blocks render
+  // side-by-side (like a calendar app) instead of fully covering each
+  // other and swallowing clicks.
+  function layoutBlocksForOverlap(blocks){
+    const timed = blocks.filter(b=>b.startTime!=null).sort((a,b)=>timeToMin(a.startTime)-timeToMin(b.startTime) || (a.durationMin-b.durationMin));
+    let active = [];
+    let cluster = [];
+    timed.forEach(b=>{
+      const startMin = timeToMin(b.startTime), endMin = startMin+b.durationMin;
+      active = active.filter(a=>a.endMin>startMin);
+      if(active.length===0 && cluster.length){
+        finishCluster(cluster);
+        cluster = [];
+      }
+      const usedCols = new Set(active.map(a=>a.col));
+      let col = 0; while(usedCols.has(col)) col++;
+      active.push({col, endMin});
+      b._col = col;
+      cluster.push(b);
+    });
+    if(cluster.length) finishCluster(cluster);
+    function finishCluster(list){
+      const maxCols = Math.max(...list.map(b=>b._col)) + 1;
+      list.forEach(b=>{ b._cols = maxCols; });
+    }
+    return blocks;
+  }
+
+  function getAllBlocksForDate(dateStr){
+    const blocks = markConflicts([...getMandatoryBlocksForDate(dateStr), ...getCustomBlocksForDate(dateStr)]);
+    layoutBlocksForOverlap(blocks);
+    return blocks;
+  }
+
+  function isActivityMissed(block, dateStr){
+    if(dateStr !== todayStr() || block.kind!=='custom' || block.done || block.running || block.status==='skipped') return false;
+    const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+    return nowMin > (timeToMin(block.startTime) + block.durationMin);
+  }
+
+  function markActivitySkipped(id, dateStr){
+    const entry = ensureActivityEntry(dateStr||todayStr(), id);
+    entry.status = 'skipped';
+    save();
+  }
+  function moveActivityToTomorrow(id){
+    const a = data.activities.find(x=>x.id===id);
+    if(!a) return;
+    markActivitySkipped(id, todayStr());
+    const tomorrow = routineDateForOffset(1);
+    if(!isActivityDueOn(a, tomorrow)){
+      const dow = new Date(tomorrow+'T00:00:00').getDay();
+      const days = Array.from(new Set([...(a.schedule.days||[]), dow]));
+      updateActivity(id, { schedule:{ frequency:'custom', days } });
+    } else {
+      save();
+    }
+  }
+  function convertActivityToFlexible(id){
+    updateActivity(id, { schedule:{ startTime:null } });
+  }
+
+  function frequencyLabel(schedule){
+    if(!schedule || !schedule.frequency || schedule.frequency==='daily') return 'Every day';
+    if(schedule.frequency==='weekdays') return 'Weekdays only';
+    if(schedule.frequency==='weekends') return 'Weekends only';
+    if(schedule.frequency==='custom'){
+      const names=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      return (schedule.days||[]).slice().sort().map(d=>names[d]).join(', ') || 'Custom (no days selected)';
+    }
+    return 'Every day';
+  }
+
+  function ensureRoutineTabDom(){
+    if(routineHeaderBuilt) return;
+    const root = document.getElementById('tab-routine');
+    root.innerHTML = `
+      <div class="routine-toolbar">
+        <div class="routine-template-bar">
+          <select id="routineTemplateSelect"></select>
+          <button class="icon-btn" id="routineTemplateRenameBtn" title="Rename template" style="display:none;">✎</button>
+          <button class="icon-btn" id="routineTemplateDuplicateBtn" title="Duplicate template" style="display:none;">⧉</button>
+          <button class="icon-btn" id="routineTemplateDeleteBtn" title="Delete template" style="display:none;">🗑</button>
+          <button class="pill ghost" id="routineTemplateNewBtn">+ Save as template</button>
+        </div>
+        <div class="cal-tabbar" id="routineViewTabs">
+          <button class="cal-tab on" data-view="daily">Daily</button>
+          <button class="cal-tab" data-view="weekly">Weekly</button>
+          <button class="cal-tab" data-view="overview">Overview</button>
+        </div>
+      </div>
+
+      <div class="routine-analytics" id="routineAnalytics"></div>
+      <div class="mandatory-pinned-strip" id="mandatoryPinnedStrip"></div>
+
+      <div id="routineDailyView">
+        <div class="cal-nav">
+          <button id="routineDayPrev">‹</button>
+          <h3 id="routineDayLabel"></h3>
+          <button id="routineDayNext">›</button>
+        </div>
+        <div class="snap-control">
+          <span>Snap</span>
+          <button class="snap-btn on" data-snap="15">15m</button>
+          <button class="snap-btn" data-snap="30">30m</button>
+          <button class="snap-btn" data-snap="60">1h</button>
+        </div>
+        <div class="timeline-wrap" id="timelineWrap">
+          <div class="timeline-inner" id="timelineInner">
+            <div class="timeline-hours" id="timelineHours"></div>
+            <div class="timeline-track" id="timelineTrack"></div>
+          </div>
+        </div>
+        <div class="routine-flexible-panel" id="routineFlexiblePanel">
+          <div class="item-sub" style="margin-bottom:8px;">Flexible Activities <span class="empty-note">— drag onto the timeline, or pick a time</span></div>
+          <div id="routineFlexibleList" class="flexible-dropzone"></div>
+        </div>
+      </div>
+
+      <div id="routineWeeklyView" style="display:none;">
+        <div class="weekly-grid" id="weeklyGrid"></div>
+      </div>
+
+      <div id="routineOverviewView" style="display:none;">
+        <div class="overview-groups" id="overviewGroups"></div>
+      </div>
+
+      <div class="routine-expand-panel" id="routineExpandPanel" style="display:none;"></div>
+    `;
+
+    const hoursEl = document.getElementById('timelineHours');
+    const trackEl = document.getElementById('timelineTrack');
+    const totalMin = (TIMELINE_END_HOUR-TIMELINE_START_HOUR)*60;
+    trackEl.style.height = (totalMin*PX_PER_MIN)+'px';
+    hoursEl.style.height = (totalMin*PX_PER_MIN)+'px';
+    let hoursHtml = '', gridHtml = '';
+    for(let h=TIMELINE_START_HOUR; h<TIMELINE_END_HOUR; h++){
+      const top = (h-TIMELINE_START_HOUR)*60*PX_PER_MIN;
+      const label = h===0?'12 AM': h<12?h+' AM': h===12?'12 PM':(h-12)+' PM';
+      hoursHtml += `<div class="hour-label" style="top:${top}px">${label}</div>`;
+      gridHtml += `<div class="hour-line" style="top:${top}px"></div>`;
+    }
+    hoursEl.innerHTML = hoursHtml;
+    trackEl.insertAdjacentHTML('beforeend', gridHtml + '<div class="timeline-now-line" id="timelineNowLine"><span class="now-badge"></span></div>');
+
+    trackEl.addEventListener('dragover', ev=> ev.preventDefault());
+    trackEl.addEventListener('drop', ev=>{
+      ev.preventDefault();
+      const id = ev.dataTransfer.getData('text/plain');
+      if(!id) return;
+      const rect = trackEl.getBoundingClientRect();
+      const y = ev.clientY - rect.top;
+      const minutes = TIMELINE_START_HOUR*60 + Math.round((y/PX_PER_MIN)/routineSnapMin)*routineSnapMin;
+      updateActivity(id, { schedule:{ startTime: minToTime(minutes) } });
+      renderRoutineTab();
+    });
+
+    document.querySelectorAll('#routineViewTabs .cal-tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('#routineViewTabs .cal-tab').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on');
+        routineView = btn.dataset.view;
+        renderRoutineTab();
+      });
+    });
+    document.getElementById('routineDayPrev').addEventListener('click', ()=>{ routineDayOffset--; renderRoutineTab(); });
+    document.getElementById('routineDayNext').addEventListener('click', ()=>{ routineDayOffset++; renderRoutineTab(); });
+    document.querySelectorAll('.snap-btn').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        routineSnapMin = +btn.dataset.snap;
+        document.querySelectorAll('.snap-btn').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on');
+      });
+    });
+
+    document.getElementById('routineTemplateNewBtn').addEventListener('click', createTemplateFlow);
+    document.getElementById('routineTemplateSelect').addEventListener('change', e=> onTemplateSelected(e.target.value));
+    document.getElementById('routineTemplateRenameBtn').addEventListener('click', renameActiveTemplate);
+    document.getElementById('routineTemplateDuplicateBtn').addEventListener('click', duplicateActiveTemplate);
+    document.getElementById('routineTemplateDeleteBtn').addEventListener('click', deleteActiveTemplate);
+
+    if(!routineNowInterval) routineNowInterval = setInterval(tickRoutineNowLine, 30000);
+    routineHeaderBuilt = true;
+  }
+
+  function tickRoutineNowLine(){
+    const line = document.getElementById('timelineNowLine');
+    if(!line) return;
+    const now = new Date();
+    const nowMin = now.getHours()*60 + now.getMinutes();
+    if(routineDayOffset!==0 || nowMin < TIMELINE_START_HOUR*60 || nowMin >= TIMELINE_END_HOUR*60){
+      line.style.display = 'none';
+    } else {
+      line.style.display = '';
+      line.style.top = ((nowMin-TIMELINE_START_HOUR*60)*PX_PER_MIN)+'px';
+      line.querySelector('.now-badge').textContent = 'NOW · '+now.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+    }
+    document.querySelectorAll('.timeline-block.live .block-live span').forEach(span=>{
+      const blockEl = span.closest('.timeline-block');
+      if(!blockEl) return;
+      const key = blockEl.dataset.key;
+      const rtKey = key.startsWith('activity:') ? 'activity|'+key.slice(9) : (()=>{ const p=key.split(':'); return p[1]+'|'+p[2]; })();
+      const rt = runningTimers[rtKey];
+      if(rt) span.textContent = fmtTime((Date.now()-rt.startTime)/1000);
+    });
+  }
+
+  function renderRoutineTab(){
+    ensureRoutineTabDom();
+    renderTemplateSelect();
+    renderMandatoryPinnedStrip();
+    document.getElementById('routineDailyView').style.display = routineView==='daily' ? '' : 'none';
+    document.getElementById('routineWeeklyView').style.display = routineView==='weekly' ? '' : 'none';
+    document.getElementById('routineOverviewView').style.display = routineView==='overview' ? '' : 'none';
+    document.getElementById('routineExpandPanel').style.display = 'none';
+    if(routineView==='daily') renderRoutineDaily();
+    if(routineView==='weekly') renderRoutineWeekly();
+    if(routineView==='overview') renderRoutineOverview();
+  }
+
+  function renderMandatoryPinnedStrip(){
+    const el = document.getElementById('mandatoryPinnedStrip');
+    const t = todayStr();
+    const day = data.logs[t];
+    const readingLoggedToday = data.books.length>0 && data.books.some(b=>((day && day.reading && day.reading[b.id])||0) > 0);
+    const totalMilestones = data.learning.reduce((n,tr)=>n+tr.milestones.length,0);
+    const doneMilestones = data.learning.reduce((n,tr)=>n+tr.milestones.filter(m=>m.done).length,0);
+    el.innerHTML = `
+      <div class="pinned-label">Mandatory Practices <span class="lock-badge">🔒 Core</span></div>
+      <div class="pinned-grid">
+        <div class="pinned-chip">📿 Japa <span class="pinned-note">on timeline below</span></div>
+        <div class="pinned-chip">🧘 Practice <span class="pinned-note">on timeline below</span></div>
+        <div class="pinned-chip">📖 Reading <span class="pinned-note">${data.books.length===0?'no books yet':(readingLoggedToday?'logged today':'not logged today')}</span></div>
+        <div class="pinned-chip">🎓 Learning <span class="pinned-note">${totalMilestones? doneMilestones+'/'+totalMilestones+' milestones':'no milestones yet'}</span></div>
+      </div>`;
+  }
+
+  function renderRoutineDaily(){
+    const dateStr = routineDateForOffset(routineDayOffset);
+    const label = routineDayOffset===0 ? 'Today' : new Date(dateStr+'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'short', day:'numeric'});
+    document.getElementById('routineDayLabel').textContent = label;
+
+    const blocks = getAllBlocksForDate(dateStr);
+    const track = document.getElementById('timelineTrack');
+    track.querySelectorAll('.timeline-block').forEach(n=>n.remove());
+
+    blocks.forEach(b=>{
+      const top = (timeToMin(b.startTime) - TIMELINE_START_HOUR*60) * PX_PER_MIN;
+      if(top < 0 || top > (TIMELINE_END_HOUR-TIMELINE_START_HOUR)*60*PX_PER_MIN) return;
+      const height = Math.max(18, b.durationMin*PX_PER_MIN);
+      const div = document.createElement('div');
+      div.className = 'timeline-block'+(b.locked?' locked':'')+(b.conflict?' conflict':'')+(b.running?' live':'')+(b.done?' done':'');
+      const cols = b._cols || 1, col = b._col || 0;
+      div.style.top = top+'px';
+      div.style.height = height+'px';
+      div.style.left = `calc(${(col/cols)*100}% + 4px)`;
+      div.style.width = `calc(${(1/cols)*100}% - ${cols>1?6:12}px)`;
+      div.style.borderLeftColor = b.color;
+      div.dataset.key = b.key;
+      const end = minToTime(timeToMin(b.startTime)+b.durationMin);
+      div.innerHTML = `
+        <div class="block-body">
+          <div class="block-title">${b.icon} ${escapeHtml(b.name)}${b.locked?' <span class="mini-lock">🔒</span>':''}</div>
+          <div class="block-time">${fmtTimeLabel(b.startTime)}${height>=32?' – '+fmtTimeLabel(end):''}</div>
+          ${b.running ? `<div class="block-live">● RUNNING — <span>${fmtTime(b.seconds||0)}</span></div>` : ''}
+          ${b.conflict ? `<div class="block-conflict">⚠ overlaps</div>` : ''}
+        </div>
+        <div class="resize-handle"></div>
+      `;
+      track.appendChild(div);
+      div.querySelector('.block-body').addEventListener('click', ev=>{ ev.stopPropagation(); openBlockExpand(b, dateStr); });
+      wireBlockDrag(div, b, dateStr);
+      wireBlockResize(div, b, dateStr);
+    });
+
+    renderRoutineFlexible(dateStr);
+    renderRoutineAnalytics(dateStr, blocks);
+    tickRoutineNowLine();
+
+    if(routineDayOffset===0){
+      const wrap = document.getElementById('timelineWrap');
+      const nowMin = new Date().getHours()*60+new Date().getMinutes();
+      if(nowMin>=TIMELINE_START_HOUR*60 && nowMin<TIMELINE_END_HOUR*60){
+        wrap.scrollTop = Math.max(0, (nowMin-TIMELINE_START_HOUR*60)*PX_PER_MIN - 120);
+      }
+    }
+  }
+
+  function wireBlockDrag(el, block, dateStr){
+    const body = el.querySelector('.block-body');
+    const DRAG_THRESHOLD_PX = 4; // below this, treat as a plain click (open the expand panel) rather than a drag
+    let dragging=false, moved=false, startY=0, startTop=0;
+    body.addEventListener('pointerdown', ev=>{
+      if(ev.target.closest('.resize-handle')) return;
+      dragging = true; moved = false; startY = ev.clientY; startTop = el.offsetTop;
+      body.setPointerCapture(ev.pointerId);
+    });
+    body.addEventListener('pointermove', ev=>{
+      if(!dragging) return;
+      if(!moved && Math.abs(ev.clientY-startY) > DRAG_THRESHOLD_PX){
+        moved = true;
+        el.classList.add('dragging');
+      }
+      if(!moved) return;
+      const track = document.getElementById('timelineTrack');
+      let newTop = startTop + (ev.clientY - startY);
+      newTop = Math.max(0, Math.min(newTop, track.clientHeight - el.offsetHeight));
+      const snappedMin = Math.round((newTop/PX_PER_MIN)/routineSnapMin)*routineSnapMin;
+      el.style.top = Math.max(0, snappedMin*PX_PER_MIN)+'px';
+    });
+    body.addEventListener('pointerup', ev=>{
+      if(!dragging) return;
+      dragging = false;
+      el.classList.remove('dragging');
+      if(!moved) return; // a plain click — let the click listener open the expand panel undisturbed
+      const newStartMin = TIMELINE_START_HOUR*60 + Math.round(parseFloat(el.style.top)/PX_PER_MIN);
+      applyBlockTimeChange(block, minToTime(newStartMin));
+    });
+  }
+
+  function wireBlockResize(el, block, dateStr){
+    const handle = el.querySelector('.resize-handle');
+    let resizing=false, moved=false, startY=0, startHeight=0;
+    handle.addEventListener('pointerdown', ev=>{
+      ev.stopPropagation();
+      resizing = true; moved = false; startY = ev.clientY; startHeight = el.offsetHeight;
+      handle.setPointerCapture(ev.pointerId);
+    });
+    handle.addEventListener('pointermove', ev=>{
+      if(!resizing) return;
+      ev.stopPropagation();
+      if(!moved && Math.abs(ev.clientY-startY) > 3){ moved = true; el.classList.add('resizing'); }
+      if(!moved) return;
+      let newHeight = Math.max(15*PX_PER_MIN, startHeight + (ev.clientY - startY));
+      const snappedMin = Math.max(routineSnapMin, Math.round((newHeight/PX_PER_MIN)/routineSnapMin)*routineSnapMin);
+      el.style.height = (snappedMin*PX_PER_MIN)+'px';
+    });
+    handle.addEventListener('pointerup', ev=>{
+      if(!resizing) return;
+      ev.stopPropagation();
+      resizing = false;
+      el.classList.remove('resizing');
+      if(!moved) return;
+      const newDurationMin = Math.max(5, Math.round(parseFloat(el.style.height)/PX_PER_MIN));
+      applyBlockDurationChange(block, newDurationMin);
+    });
+  }
+
+  function applyBlockTimeChange(block, newStartTime){
+    if(block.kind==='mandatory') setMandatoryTimeInfo(block.subtype, block.sandhya, {time:newStartTime});
+    else updateActivity(block.refId, { schedule:{ startTime:newStartTime } });
+    renderRoutineTab();
+  }
+  function applyBlockDurationChange(block, newDurationMin){
+    if(block.kind==='mandatory') setMandatoryTimeInfo(block.subtype, block.sandhya, {durationMin:newDurationMin});
+    else updateActivity(block.refId, { durationMin:newDurationMin });
+    renderRoutineTab();
+  }
+
+  function openBlockExpand(block, dateStr){
+    const panel = document.getElementById('routineExpandPanel');
+    const isToday = dateStr===todayStr();
+    const missed = isToday && isActivityMissed(block, dateStr);
+    const end = minToTime(timeToMin(block.startTime)+block.durationMin);
+
+    let actionsHtml = '';
+    if(!isToday){
+      actionsHtml = '<span class="empty-note">Only today\'s activities can be started.</span>';
+    } else if(block.kind==='mandatory'){
+      if(block.subtype==='japa'){
+        actionsHtml = `<button class="pill" data-block-act="start">Start</button>`;
+      } else {
+        actionsHtml = block.running
+          ? `<button class="pill done-btn" data-block-act="complete">Done</button>`
+          : `<button class="pill" data-block-act="start">Start</button>`;
+      }
+    } else if(missed){
+      actionsHtml = `
+        <button class="pill" data-block-act="complete">Mark Complete</button>
+        <button class="pill ghost" data-block-act="skip">Skip Today</button>
+        <button class="pill ghost" data-block-act="reschedule">Reschedule</button>
+        <button class="pill ghost" data-block-act="tomorrow">Move to Tomorrow</button>
+        <button class="pill ghost" data-block-act="flexible">Convert to Flexible</button>`;
+    } else if(block.running){
+      actionsHtml = `<button class="pill ghost" data-block-act="pause">Pause</button><button class="pill done-btn" data-block-act="complete">Complete</button>`;
+    } else if(block.done){
+      actionsHtml = `<span class="empty-note">Completed ✓ — ${fmtShort(block.seconds)}</span>`;
+    } else if(block.seconds>0){
+      actionsHtml = `<button class="pill" data-block-act="start">Resume</button><button class="pill done-btn" data-block-act="complete">Complete</button>`;
+    } else {
+      actionsHtml = `<button class="pill" data-block-act="start">Start</button>`;
+    }
+
+    let manageHtml = '';
+    if(block.kind==='mandatory'){
+      manageHtml = `
+        <div class="mandatory-edit-row">
+          <input type="time" class="mini-time-input" id="mtEditTime" value="${block.startTime}">
+          <input type="number" class="mini-dur-input" id="mtEditDuration" min="5" step="5" value="${block.durationMin}">
+          <button class="pill ghost" data-block-act="save-mandatory-time">Save time</button>
+        </div>
+        <span class="lock-badge">🔒 Core Practice — always available, cannot be deleted</span>`;
+    } else {
+      manageHtml = `
+        <button class="pill ghost" data-block-act="edit">Edit</button>
+        <button class="pill ghost" data-block-act="duplicate">Duplicate</button>
+        <button class="pill ghost" data-block-act="delete">Delete</button>`;
+    }
+
+    const activityMeta = block.kind==='custom' ? data.activities.find(a=>a.id===block.refId) : null;
+
+    panel.innerHTML = `
+      <div class="expand-close-row"><button class="fs-close sheet-close" id="expandCloseBtn">✕</button></div>
+      <div class="expand-title">${block.icon} ${escapeHtml(block.name)}</div>
+      <div class="expand-meta">${fmtTimeLabel(block.startTime)} – ${fmtTimeLabel(end)} · planned ${fmtShort(block.durationMin*60)}</div>
+      ${block.seconds>0 ? `<div class="expand-meta">Actual so far: ${fmtShort(block.seconds)}</div>` : ''}
+      ${activityMeta && activityMeta.description ? `<div class="expand-desc">${escapeHtml(activityMeta.description)}</div>` : ''}
+      ${activityMeta ? `<div class="expand-meta">${categoryLabel(activityMeta.category)} · ${priorityLabel(activityMeta.priority)} · ${frequencyLabel(activityMeta.schedule)}</div>` : ''}
+      ${block.conflict ? `<div class="expand-conflict">⚠ Overlaps with ${escapeHtml(block.conflictNames.join(', '))}</div>` : ''}
+      <div class="expand-actions">${actionsHtml}</div>
+      <div class="expand-actions">${manageHtml}</div>
+    `;
+    panel.style.display = '';
+    panel.classList.remove('expand-in');
+    void panel.offsetWidth;
+    panel.classList.add('expand-in');
+
+    document.getElementById('expandCloseBtn').addEventListener('click', ()=>{ panel.style.display='none'; });
+    panel.querySelectorAll('[data-block-act]').forEach(btn=>{
+      btn.addEventListener('click', ()=> handleBlockAction(btn.dataset.blockAct, block, dateStr));
+    });
+  }
+
+  function handleBlockAction(act, block, dateStr){
+    const panel = document.getElementById('routineExpandPanel');
+    const closeAndRefresh = ()=>{ panel.style.display='none'; renderRoutineTab(); };
+
+    if(block.kind==='mandatory'){
+      if(act==='start'){
+        if(block.subtype==='japa'){ panel.style.display='none'; openJapaFullscreen(block.refId, block.sandhya); return; }
+        startPractice(block.refId, block.sandhya); closeAndRefresh(); return;
+      }
+      if(act==='complete' && block.subtype==='practice'){ stopPractice(block.refId, block.sandhya); closeAndRefresh(); return; }
+      if(act==='save-mandatory-time'){
+        const time = document.getElementById('mtEditTime').value || block.startTime;
+        const dur = Math.max(5, parseInt(document.getElementById('mtEditDuration').value,10) || block.durationMin);
+        setMandatoryTimeInfo(block.subtype, block.sandhya, {time, durationMin:dur});
+        closeAndRefresh();
+      }
+      return;
+    }
+
+    const id = block.refId;
+    if(act==='start'){ startActivityTimer(id); closeAndRefresh(); return; }
+    if(act==='pause'){ pauseActivityTimer(id); closeAndRefresh(); return; }
+    if(act==='complete'){ completeActivityTimer(id); closeAndRefresh(); return; }
+    if(act==='skip'){ markActivitySkipped(id, dateStr); closeAndRefresh(); return; }
+    if(act==='reschedule'){ panel.style.display='none'; openActivityEditor(id); return; }
+    if(act==='tomorrow'){ moveActivityToTomorrow(id); closeAndRefresh(); return; }
+    if(act==='flexible'){ convertActivityToFlexible(id); closeAndRefresh(); return; }
+    if(act==='edit'){ panel.style.display='none'; openActivityEditor(id); return; }
+    if(act==='duplicate'){ duplicateActivity(id); closeAndRefresh(); return; }
+    if(act==='delete'){
+      if(!confirm('Delete this activity? This cannot be undone.')) return;
+      deleteActivity(id); closeAndRefresh(); return;
+    }
+  }
+
+  function renderRoutineFlexible(dateStr){
+    const listEl = document.getElementById('routineFlexibleList');
+    const due = getActivitiesDueOn(dateStr).filter(a=>!a.schedule || !a.schedule.startTime);
+    if(due.length===0){ listEl.innerHTML = '<span class="empty-note">No flexible activities for this day.</span>'; return; }
+    listEl.innerHTML = due.map(a=>`
+      <div class="flex-card" draggable="true" data-flex-id="${a.id}">
+        <span>${a.icon||'✦'} ${escapeHtml(a.name)}</span>
+        <input type="time" class="flex-time-input" data-flex-schedule="${a.id}" title="Schedule at this time">
+      </div>`).join('');
+    wireActivityRowActions(listEl);
+    listEl.querySelectorAll('.flex-card').forEach(card=>{
+      card.addEventListener('dragstart', ev=> ev.dataTransfer.setData('text/plain', card.dataset.flexId));
+    });
+  }
+
+  function renderRoutineAnalytics(dateStr, blocks){
+    const el = document.getElementById('routineAnalytics');
+    const timed = blocks.filter(b=>b.startTime);
+    const plannedSec = timed.reduce((n,b)=>n+b.durationMin*60,0);
+    const completedSec = timed.reduce((n,b)=>n+(b.done ? Math.max(b.seconds,b.durationMin*60*0.001) : (b.seconds||0)),0);
+    const remainingSec = Math.max(0, plannedSec-completedSec);
+
+    const byCategory = {};
+    timed.forEach(b=>{
+      const cat = b.kind==='mandatory' ? 'Spiritual' : categoryLabel((data.activities.find(a=>a.id===b.refId)||{}).category);
+      byCategory[cat] = (byCategory[cat]||0) + b.durationMin;
+    });
+    const maxCatMin = Math.max(1, ...Object.values(byCategory));
+
+    el.innerHTML = `
+      <div class="routine-stats-row">
+        <div class="routine-stat"><div class="num">${fmtShort(plannedSec)}</div><div class="lbl">Scheduled</div></div>
+        <div class="routine-stat"><div class="num">${fmtShort(completedSec)}</div><div class="lbl">Completed</div></div>
+        <div class="routine-stat"><div class="num">${fmtShort(remainingSec)}</div><div class="lbl">Remaining</div></div>
+      </div>
+      ${Object.keys(byCategory).length ? `<div class="routine-balance">${Object.entries(byCategory).map(([cat,min])=>`
+        <div class="balance-row">
+          <span class="balance-label">${escapeHtml(cat)}</span>
+          <div class="balance-bar"><i style="width:${Math.round(min/maxCatMin*100)}%"></i></div>
+          <span class="balance-val">${fmtShort(min*60)}</span>
+        </div>`).join('')}</div>` : ''}
+    `;
+  }
+
+  function renderRoutineWeekly(){
+    const grid = document.getElementById('weeklyGrid');
+    const base = new Date();
+    base.setDate(base.getDate() - base.getDay());
+    const dayLabels = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let html = '';
+    for(let i=0;i<7;i++){
+      const d = new Date(base); d.setDate(base.getDate()+i);
+      const dateStr = todayStr(d);
+      const isToday = dateStr===todayStr();
+      const dayBlocks = getAllBlocksForDate(dateStr).filter(b=>b.startTime).sort((a,b)=>timeToMin(a.startTime)-timeToMin(b.startTime));
+      html += `<div class="weekly-col ${isToday?'today':''}" data-date="${dateStr}">
+        <div class="weekly-col-head">${dayLabels[i]}<br><span class="weekly-date">${d.getDate()}</span></div>
+        <div class="weekly-col-body">
+          ${dayBlocks.length===0 ? '<div class="empty-note" style="font-size:11px;">Nothing scheduled</div>' : dayBlocks.map(b=>`
+            <div class="weekly-chip" style="border-left-color:${b.color}" data-week-block="${b.key}" data-date="${dateStr}">
+              <span class="weekly-chip-time">${fmtTimeLabel(b.startTime)}</span>
+              <span class="weekly-chip-name">${b.icon} ${escapeHtml(b.name)}</span>
+            </div>`).join('')}
+        </div>
+      </div>`;
+    }
+    grid.innerHTML = html;
+    function jumpToDay(dateStr){
+      routineDayOffset = Math.round((new Date(dateStr+'T00:00:00') - new Date(todayStr()+'T00:00:00'))/86400000);
+      routineView = 'daily';
+      document.querySelectorAll('#routineViewTabs .cal-tab').forEach(b=>b.classList.remove('on'));
+      document.querySelector('#routineViewTabs .cal-tab[data-view="daily"]').classList.add('on');
+      renderRoutineTab();
+    }
+    grid.querySelectorAll('.weekly-col-head').forEach(head=>{
+      head.addEventListener('click', ()=> jumpToDay(head.closest('.weekly-col').dataset.date));
+    });
+    grid.querySelectorAll('.weekly-chip').forEach(chip=>{
+      chip.addEventListener('click', ()=>{
+        const dateStr = chip.dataset.date;
+        jumpToDay(dateStr);
+        setTimeout(()=>{
+          const block = getAllBlocksForDate(dateStr).find(b=>b.key===chip.dataset.weekBlock);
+          if(block) openBlockExpand(block, dateStr);
+        }, 60);
+      });
+    });
+  }
+
+  function renderRoutineOverview(){
+    const el = document.getElementById('overviewGroups');
+    const dateStr = routineDateForOffset(routineDayOffset);
+    const blocks = getAllBlocksForDate(dateStr).filter(b=>b.startTime).sort((a,b)=>timeToMin(a.startTime)-timeToMin(b.startTime));
+    const buckets = { Morning:[], Day:[], Evening:[], Night:[] };
+    blocks.forEach(b=>{
+      const m = timeToMin(b.startTime);
+      if(m < 12*60) buckets.Morning.push(b);
+      else if(m < 17*60) buckets.Day.push(b);
+      else if(m < 21*60) buckets.Evening.push(b);
+      else buckets.Night.push(b);
+    });
+    const order = ['Morning','Day','Evening','Night'];
+    el.innerHTML = order.map((name,i)=>`
+      <div class="overview-group">
+        <div class="overview-group-title">${name}</div>
+        <div class="overview-chain">
+          ${buckets[name].length===0 ? '<span class="empty-note">Nothing planned</span>' :
+            buckets[name].map(b=>`<span class="overview-chip" style="border-color:${b.color}">${b.icon} ${escapeHtml(b.name)}</span>`).join('<span class="overview-arrow">→</span>')}
+        </div>
+      </div>
+      ${i<order.length-1 ? '<div class="overview-divider">↓</div>' : ''}
+    `).join('');
+  }
+
+  /* ---------- Routine templates ---------- */
+  function renderTemplateSelect(){
+    const sel = document.getElementById('routineTemplateSelect');
+    const opts = ['<option value="">No template (custom)</option>']
+      .concat(data.templates.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`))
+      .concat(['<option value="" disabled>── Starter presets ──</option>'])
+      .concat(ROUTINE_PRESETS.map((p,i)=>`<option value="preset:${i}">✨ ${escapeHtml(p.name)}</option>`));
+    sel.innerHTML = opts.join('');
+    sel.value = data.activeTemplateId || '';
+    const isRealTemplate = data.templates.some(t=>t.id===data.activeTemplateId);
+    ['routineTemplateRenameBtn','routineTemplateDuplicateBtn','routineTemplateDeleteBtn'].forEach(id=>{
+      document.getElementById(id).style.display = isRealTemplate ? '' : 'none';
+    });
+  }
+
+  function onTemplateSelected(value){
+    if(!value){ data.activeTemplateId=null; save(); return; }
+    if(value.startsWith('preset:')){
+      const preset = ROUTINE_PRESETS[+value.slice(7)];
+      if(!preset) return;
+      if(confirm(`Add the "${preset.name}" preset activities to your routine? You can edit or remove any of them afterward.`)){
+        preset.activities.forEach(a=> createActivity(Object.assign({}, a)));
+        refreshActivityViews();
+      }
+      renderTemplateSelect();
+      return;
+    }
+    if(!confirm('Switch to this template? This replaces your current custom activities with the template\'s saved set.')){
+      renderTemplateSelect();
+      return;
+    }
+    const tpl = data.templates.find(t=>t.id===value);
+    if(!tpl) return;
+    data.activities = tpl.activities.map(a=>Object.assign({}, a, {id:uid()}));
+    data.activeTemplateId = value;
+    save();
+    refreshActivityViews();
+  }
+
+  function createTemplateFlow(){
+    const name = prompt('Name this template (it saves your current custom activities):');
+    if(!name || !name.trim()) return;
+    const tpl = { id:uid(), name:name.trim(), activities: data.activities.map(a=>Object.assign({}, a)), createdAt:Date.now() };
+    data.templates.push(tpl);
+    data.activeTemplateId = tpl.id;
+    save();
+    renderTemplateSelect();
+  }
+  function renameActiveTemplate(){
+    const tpl = data.templates.find(t=>t.id===data.activeTemplateId);
+    if(!tpl) return;
+    const name = prompt('Rename template:', tpl.name);
+    if(!name || !name.trim()) return;
+    tpl.name = name.trim();
+    save();
+    renderTemplateSelect();
+  }
+  function duplicateActiveTemplate(){
+    const tpl = data.templates.find(t=>t.id===data.activeTemplateId);
+    if(!tpl) return;
+    const copy = { id:uid(), name: tpl.name+' (copy)', activities: tpl.activities.map(a=>Object.assign({}, a)), createdAt:Date.now() };
+    data.templates.push(copy);
+    data.activeTemplateId = copy.id;
+    save();
+    renderTemplateSelect();
+  }
+  function deleteActiveTemplate(){
+    const tpl = data.templates.find(t=>t.id===data.activeTemplateId);
+    if(!tpl) return;
+    if(!confirm(`Delete template "${tpl.name}"? This does not remove activities already added to your routine.`)) return;
+    data.templates = data.templates.filter(t=>t.id!==tpl.id);
+    data.activeTemplateId = null;
+    save();
+    renderTemplateSelect();
   }
 
   /* ---------- Calendar (execution-calendar style: filterable blocks, ported from NSQF interactive calendar) ---------- */
@@ -1296,5 +2628,6 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     renderPractice();
     renderReading();
     renderLearning();
+    renderTodaySchedule();
   }
 

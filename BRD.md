@@ -188,3 +188,112 @@ who happens to hold the invite code — see 3.2 on role-based permissions.
 - The app passes a basic installability check (Chrome DevTools ▸
   Application ▸ Manifest, and Lighthouse's PWA audit) and functions with
   the network disabled after first load.
+
+---
+
+# Addendum — Routine Scheduler module
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-10 |
+
+## A.1 Objective
+
+Add a "Routine Scheduler" premium module on top of the existing tracker: a
+visual, drag-and-drop daily/weekly timeline for planning custom activities
+(exercise, work, family time, etc.) alongside the four existing mandatory
+practices, without disturbing any existing functionality.
+
+## A.2 Scope delivered
+
+- A single reusable activity data model (`data.activities`) covering both
+  scheduled and "flexible" (no fixed time) activities — no duplicate data
+  source for the same activity, per the explicit requirement.
+- Full activity authoring: name, description, icon, category, priority,
+  accent color, estimated duration, start time, frequency (daily/weekdays/
+  weekends/custom days). A Quick Add mode (name + time + duration, with
+  clickable suggestions) and a Detailed mode with the full field set.
+- **Today's Schedule**: a new section in the Today tab, after the four
+  mandatory practices (which are untouched and still render first), listing
+  the day's scheduled and flexible custom activities with the same Start/
+  Pause/Resume/Complete controls.
+- **Routine tab**: a visual daily timeline (4 AM–midnight, scrollable,
+  auto-scrolls to the current time), with:
+  - Blocks positioned and sized by time/duration, colored by category.
+  - Drag-to-move (snapping to a configurable 15/30/60-minute grid) and
+    drag-to-resize via a bottom-edge handle, both persisting immediately.
+  - Overlapping activities render side-by-side (not stacked/hidden) and
+    are flagged with a conflict warning; the expand panel names what it
+    overlaps with.
+  - A live current-time indicator line, and a live running-timer readout
+    inside any block whose timer is active.
+  - Click-to-expand panel: description, planned vs. actual duration,
+    frequency, priority, and Start/Pause/Resume/Complete, Edit, Duplicate,
+    Delete (mandatory blocks show a "🔒 Core Practice" badge and only
+    expose a time/duration editor — no delete).
+  - Gentle handling of a missed (time passed, not completed) activity:
+    Mark Complete, Skip Today, Reschedule, Move to Tomorrow, or Convert to
+    Flexible — never a silent "failed" state.
+  - A **Flexible Activities** area for tasks with no fixed time, schedulable
+    onto the timeline either by dragging (desktop) or picking a time (any
+    device).
+  - **Weekly view**: a 7-day grid showing each day's scheduled items;
+    clicking a day jumps to its Daily view, clicking an item jumps there
+    and opens its expand panel.
+  - **Overview**: a Morning/Day/Evening/Night grouping of the day's
+    activities as a readable chain.
+  - **Templates**: save the current set of custom activities as a named,
+    reusable template; rename/duplicate/delete/switch between templates;
+    three starter presets (Spiritual Routine, Productive Work Day, Balanced
+    Routine) that add activities without disturbing the current set.
+  - **Analytics**: scheduled/completed/remaining time for the day, and a
+    time-by-category breakdown (bars).
+- Mandatory practices (Japa, Practice, Reading, Learning) remain
+  undeletable and pinned first everywhere; Japa/Practice additionally gain
+  a draggable/resizable *display* time and planned duration on the
+  timeline (stored separately from, and without altering, their real
+  timers/logs). Reading and Learning — which have no time-of-day concept
+  in the existing app — appear in a "Mandatory Practices" status strip
+  instead of being forced onto the timeline.
+- Custom activities reuse the exact same timer plumbing
+  (`runningTimers`) as the existing mandatory Practice timer; no second
+  timer system was introduced.
+- Guru's Teachings: a guru's photo, once added, now renders as a square
+  thumbnail beside each of their quotes, instead of as a full-tab
+  background image.
+
+## A.3 Deliberate simplifications (see CLAUDE.md for the technical why)
+
+- **Weekly view** is click-to-jump-and-edit rather than true drag-and-drop
+  of activities across day columns; "Duplicate" from the expand panel is
+  the practical equivalent of copying an activity to another day.
+- **No separate multi-year Insights/Progress tab.** The brief described a
+  full daily/weekly/monthly/yearly missed-and-pending analytics view; what
+  shipped is a today-focused analytics summary in the Routine tab. A
+  historical drill-down across arbitrary time ranges is a substantial
+  feature in its own right and was out of scope for this pass.
+- **No pinch/zoom** on the timeline; it scrolls vertically instead.
+- Mandatory-practice "duration" on the timeline is a planning/display hint,
+  not an enforced limit — the real timer remains exactly as it was.
+
+## A.4 Non-functional notes
+
+- No new data source was introduced for images/media; the existing
+  Firestore document-size caveat (BRD §8) applies equally to activity
+  data, which is small (text + short color/icon strings) and not a
+  concern at this scale.
+- All new interactions (drag, resize, click-to-expand) were built on the
+  Pointer Events API so the same code path serves mouse and touch, per the
+  mobile-responsiveness requirement.
+
+## A.5 Success criteria
+
+- Every pre-existing feature (mandatory practices, Calendar, Guru's
+  Teachings, Chakra Dharana, export/import, theme toggle) works exactly as
+  before, verified by re-running the original acceptance checks in
+  §"Testing changes" of CLAUDE.md alongside the new ones.
+- A user can create a custom activity, see it scheduled correctly for the
+  right days, drag it to a new time, resize its duration, complete it, and
+  see all of that reflected consistently in both the Today tab and the
+  Routine tab, surviving a page reload.
