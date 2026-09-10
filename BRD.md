@@ -380,3 +380,107 @@ next step — it was scoped and explained, not silently declined.
   can be cleared.
 - The daily-quote card shows a photo (when the guru has one) as a bounded
   square image, never as a background covering the screen.
+
+# Addendum C — Header Stats Strip, Journal Module
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-10 |
+
+## C.1 Objective
+
+Two follow-on requests: surface today's total Practice and Japa time as a
+one-line header summary visible from every tab; and add a Journaling tab
+that is substantially more than a plain diary — a structured spiritual
+self-observation practice organized around Observe → Reflect → Purify →
+Learn → Practice → Grow, built from a very detailed 20-section brief.
+
+## C.2 Scope delivered
+
+**Header stats strip**: a single line above the header (`#statsStrip`),
+present on every tab, showing "🧘 Practice today" and "📿 Japa today" as
+short durations, updating live once a second while a practice/activity
+timer is running and immediately on session completion.
+
+**Journal tab** (fifth main tab, between Routine and Calendar), built from
+the brief's sections as follows:
+- **Core Daily Journal**: Thoughts for the Day, Positive Pointers, Negative
+  Pointers, Spiritual Notes, and 3-slot Gratitude — free-form text per day.
+- **Sankalpa (morning intention / evening outcome)** and a **Morning
+  Journal** (feeling, today's mantra/shloka, what to be careful of) and
+  **Evening Journal** (what happened, where awareness was lost/kept, what
+  to practice tomorrow) — the brief's Morning & Evening Journal and
+  Sankalpa sections, combined into one Today view rather than two separate
+  screens, since both are edited on the same date's entry.
+- **Structured Reflections** — one generic mechanism (not five separate
+  features) covering the brief's Trigger→Reaction→Awareness, Experiences
+  Journal, Seva Journal, Guru/Teaching Journal, and a Task Note type used
+  to satisfy the explicit ask to "select the task and then add notes in
+  the journaling section" (a 📝 icon next to every japa counter, practice,
+  book, learning track, Today's Schedule/Routine activity row, and Routine
+  block's expand panel opens a pre-filled note for that task).
+- **Question of the Day / Self-Inquiry**: a deterministic daily question
+  (same question on every device for a given date, via the same hashing
+  approach already used for the daily Guru's-quote card) with a free-form
+  answer field.
+- **Spiritual Growth Dashboard**, delivered as trend-only period averages
+  (7/30/90/365 days) of 5 self-observation ratings (Awareness, Discipline,
+  Peace, Gratitude, Self-control) — explicitly **not** gamified: no points,
+  streak counters, badges, or leaderboard framing, per the brief's own
+  explicit caution against turning spirituality into competition.
+- **Long-Term Spiritual Goals**: a simple categorized checklist, shown
+  alongside the Growth view.
+- **Timeline / Spiritual Diary + Search**: a reverse-chronological list of
+  every day with journal content, showing a same-day summary (cross-
+  referencing the existing Japa/Practice logs, not duplicating them) and
+  text snippets, with full-text search across every field including
+  structured reflections.
+- **Privacy — App Lock**: an optional PIN (hashed, never stored in plain
+  text) gates the Journal tab specifically, re-locking on switch-user and
+  sign-out.
+
+## C.3 Deliberate simplifications (see CLAUDE.md "Journal module" for the
+technical why)
+
+- **AI Reflection** — the brief itself framed this as optional, and it
+  requires a real backend call (an LLM API), which is out of scope for a
+  no-build, client-only app with no server component. Not built.
+- **Device-level biometric unlock and field-level encryption** — the PIN
+  lock covers the "shared household device, casual privacy" case the app
+  is built for; true biometric auth and encrypted-at-rest journal data
+  would need a key-management story this app doesn't have (and Firestore
+  security rules already restrict reads to workspace members, which is the
+  app's real access boundary).
+- **"Witness Mode" as a separate, distinctly-branded mode** — its
+  intent (observe first, without judgment, before reacting) is already the
+  organizing idea behind the Evening Reflection and Trigger→Reaction→
+  Awareness sections rather than a separate UI surface. A dedicated
+  standalone mode is a reasonable future addition, not built in this pass.
+- **Export / delete-permanently as Journal-specific controls** — the app's
+  existing JSON export/import already covers the full profile blob
+  (journal included); a Journal-only export/delete is a narrower cut of
+  functionality that already exists at the profile level and wasn't
+  duplicated.
+- No ads exist anywhere in this app, so "no ads inside journal" was
+  already satisfied without a specific change.
+
+## C.4 Success criteria
+
+- The header stats strip shows correct Practice/Japa totals for today on
+  every tab, updates live while a timer is running, and matches the
+  underlying logs after a reload.
+- Every field in the Journal's Today view (Sankalpa, Morning, Thoughts,
+  Pointers, Spiritual Notes, Gratitude, Question of the Day, Evening
+  Reflection, 5 ratings) persists across a reload.
+- All five structured-reflection types can be added, viewed, and deleted,
+  and a Task Note opened from any of the linked task rows pre-fills with
+  that task's name.
+- The Growth view never displays points/streaks/leaderboard-style scoring
+  — only period-averaged self-ratings and a plain goals checklist.
+- The Timeline view lists every day with journal content and its search
+  correctly filters by any word appearing in any field, including
+  structured reflections.
+- With a PIN set, the Journal tab requires it after every switch-user or
+  sign-out, and never after simply switching tabs within the same
+  session.

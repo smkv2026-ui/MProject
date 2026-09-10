@@ -19,7 +19,12 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       // Optional display-time overrides for the four mandatory practices,
       // used only to position/drag them on the Routine timeline; the
       // practices themselves and their real timers/logs are untouched.
-      mandatorySchedule:{ japa:{}, practice:{}, reading:{}, learning:{} }
+      mandatorySchedule:{ japa:{}, practice:{}, reading:{}, learning:{} },
+      // Journal: one entry object per date, keyed by dateStr — see
+      // "Journal module" for the entry shape. journalGoals is a flat,
+      // manually-maintained list (not auto-linked to entries).
+      journal:{},
+      journalGoals:[]
     };
   }
   // Back-fills fields added after a profile's data was first created, so
@@ -41,6 +46,8 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     ['japa','practice','reading','learning'].forEach(k=>{
       if(!d.mandatorySchedule[k] || typeof d.mandatorySchedule[k] !== 'object') d.mandatorySchedule[k] = {};
     });
+    if(!d.journal || typeof d.journal !== 'object') d.journal = {};
+    if(!Array.isArray(d.journalGoals)) d.journalGoals = [];
     return d;
   }
   let data = defaultData();
@@ -389,6 +396,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   document.getElementById('switchUserBtn').addEventListener('click', ()=>{
     finalizeAllRunning();
     clearAllReminderTimers();
+    journalUnlockedThisSession = false;
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -434,6 +442,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     if(unsubGurus){ unsubGurus(); unsubGurus = null; }
     finalizeAllRunning();
     clearAllReminderTimers();
+    journalUnlockedThisSession = false;
     users = [];
     gurus = [];
     currentUser = null;
@@ -470,9 +479,11 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       btn.classList.add('active');
       document.getElementById('tab-today').style.display = tab==='today' ? '' : 'none';
       document.getElementById('tab-routine').style.display = tab==='routine' ? '' : 'none';
+      document.getElementById('tab-journal').style.display = tab==='journal' ? '' : 'none';
       document.getElementById('tab-calendar').style.display = tab==='calendar' ? '' : 'none';
       document.getElementById('tab-gurus').style.display = tab==='gurus' ? '' : 'none';
       if(tab==='routine') renderRoutineTab();
+      if(tab==='journal') renderJournalTab();
       if(tab==='calendar') renderCalendar();
       if(tab==='gurus') renderGurusTab();
     });
@@ -646,6 +657,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         <div class="row-flex">
           <span class="item-title">${escapeHtml(counter.name)}</span>
           <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="edit-icon-btn japa-journal-btn" data-name="${escapeHtml(counter.name)}" title="Add journal note">📝</button>
             <button class="edit-icon-btn japa-edit-btn" data-counter="${counter.id}" title="Edit counter">✎</button>
             <button class="icon-btn japa-img-btn" data-counter="${counter.id}" title="${counter.image ? 'Change background image' : 'Attach background image'}" style="width:28px;height:28px;font-size:13px;flex-shrink:0;">${counter.image ? '🖼️' : '📷'}</button>
           </div>
@@ -671,6 +683,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         ev.stopPropagation();
         openJapaEditForm(btn.dataset.counter);
       });
+    });
+    el.querySelectorAll('.japa-journal-btn').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); openJournalNoteFor(btn.dataset.name); });
     });
   }
 
@@ -767,6 +782,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       document.getElementById('fsTimer').textContent = fmtTime(fsState.baseSeconds + elapsed);
       tickLiveCalendarCell();
       tickRoutineNowLine();
+      renderStatsStrip();
     }, 1000);
   }
   function closeJapaFullscreen(){
@@ -779,7 +795,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     entry.seconds = fsState.baseSeconds + elapsed;
     document.getElementById('japaFullscreen').classList.remove('open');
     fsState = null;
-    save(); renderJapa();
+    save(); renderJapa(); renderStatsStrip();
   }
   document.getElementById('fsTapArea').addEventListener('click', ()=>{
     if(!fsState) return;
@@ -873,7 +889,10 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       return `<div class="item-row">
         <div class="row-flex">
           <span class="item-title">${escapeHtml(pr.name)}</span>
-          <button class="edit-icon-btn practice-edit-btn" data-practice="${pr.id}" title="Edit practice">✎</button>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button class="edit-icon-btn practice-journal-btn" data-name="${escapeHtml(pr.name)}" title="Add journal note">📝</button>
+            <button class="edit-icon-btn practice-edit-btn" data-practice="${pr.id}" title="Edit practice">✎</button>
+          </div>
         </div>
         <div class="task-list">${tasks}</div>
       </div>`;
@@ -891,6 +910,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         openPracticeEditForm(btn.dataset.practice);
       });
     });
+    el.querySelectorAll('.practice-journal-btn').forEach(btn=>{
+      btn.addEventListener('click', (ev)=>{ ev.stopPropagation(); openJournalNoteFor(btn.dataset.name); });
+    });
   }
 
   function startPractice(practiceId, sandhya){
@@ -907,6 +929,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       }
       tickLiveCalendarCell();
       tickRoutineNowLine();
+      renderStatsStrip();
     }, 1000);
   }
   function stopPractice(practiceId, sandhya){
@@ -921,7 +944,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     entry.log.push({ seconds: elapsed, endedAt: Date.now() });
     entry.seconds += elapsed;
     delete runningTimers[key];
-    save(); renderPractice(); renderCalendarDashboard();
+    save(); renderPractice(); renderCalendarDashboard(); renderStatsStrip();
     if(document.getElementById('tab-calendar').style.display !== 'none') renderCalendar();
   }
 
@@ -955,6 +978,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       }
       tickLiveCalendarCell();
       tickRoutineNowLine();
+      renderStatsStrip();
     }, 1000);
   }
 
@@ -1030,6 +1054,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         <div class="reading-log">
           <input type="number" min="0" placeholder="pages today" data-book="${book.id}" value="${todayVal||''}">
           <button class="pill" data-log-book="${book.id}">Log</button>
+          <button class="edit-icon-btn" data-journal-book="${escapeHtml(book.title)}" title="Add journal note">📝</button>
         </div>
         <div class="reminder-control" style="margin-top:8px;">
           <span class="reminder-icon">🔔</span>
@@ -1043,6 +1068,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         setItemReminderTime('reading', inp.dataset.reminderReading, inp.value);
         if(inp.value) ensureNotificationPermission();
       });
+    });
+    el.querySelectorAll('[data-journal-book]').forEach(btn=>{
+      btn.addEventListener('click', ()=> openJournalNoteFor(btn.dataset.journalBook));
     });
     el.querySelectorAll('[data-log-book]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -1098,6 +1126,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
           <span class="item-sub">${doneCount}/${track.milestones.length} milestones</span>
         </div>
         <button class="expand-toggle" data-toggle-expand="${track.id}">${track.expanded?'hide details':'show details'}</button>
+        <button class="edit-icon-btn" data-journal-track="${escapeHtml(track.title)}" title="Add journal note" style="margin-left:8px;">📝</button>
         <div class="reminder-control" style="margin-top:8px;">
           <span class="reminder-icon">🔔</span>
           <input type="time" data-reminder-learning="${track.id}" value="${getItemReminderTime('learning', track.id)}" title="Daily learning reminder">
@@ -1111,6 +1140,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         setItemReminderTime('learning', inp.dataset.reminderLearning, inp.value);
         if(inp.value) ensureNotificationPermission();
       });
+    });
+    el.querySelectorAll('[data-journal-track]').forEach(btn=>{
+      btn.addEventListener('click', ()=> openJournalNoteFor(btn.dataset.journalTrack));
     });
     el.querySelectorAll('[data-toggle-expand]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -1331,6 +1363,689 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     </span>`;
   }
 
+  /* ======================================================================
+     Journal — Observe → Reflect → Purify → Learn → Practice → Grow.
+     One entry object per date (data.journal[dateStr]), matching the same
+     "single reusable model" approach as the Routine Scheduler: structured
+     reflections (Trigger/Experience/Seva/Guru/Task-note) are one typed,
+     repeatable list per day rather than five near-duplicate CRUD sections.
+     Deliberately NOT built: an AI reflection companion (would need a
+     server-side LLM call this static PWA has no backend for) and real
+     device biometrics (WebAuthn is a much larger lift than the PIN lock
+     built here) — see CLAUDE.md.
+     ====================================================================== */
+  const JOURNAL_RATING_KEYS = [
+    {key:'awareness', label:'Awareness'},
+    {key:'discipline', label:'Discipline'},
+    {key:'peace', label:'Peace'},
+    {key:'gratitude', label:'Gratitude'},
+    {key:'selfControl', label:'Self-control'}
+  ];
+  const JOURNAL_QUESTIONS = [
+    "What disturbed my peace today?",
+    "Why did it disturb me?",
+    "What expectation was behind it?",
+    "Where did ego appear today?",
+    "Where did I act without expectation?",
+    "Did I speak unnecessarily?",
+    "Did I judge someone?",
+    "What am I attached to?",
+    "What am I afraid of losing?",
+    "Where did I experience genuine compassion?",
+    "Did I remember the Divine during ordinary activities?",
+    "Was I the doer, or was I witnessing?"
+  ];
+  const JOURNAL_ENTRY_TYPES = [
+    {key:'trigger', label:'Trigger → Reaction → Awareness', icon:'🔥'},
+    {key:'experience', label:'Experience', icon:'🌌'},
+    {key:'seva', label:'Seva', icon:'🙏'},
+    {key:'guru', label:'Guru Teaching', icon:'🪔'},
+    {key:'taskNote', label:'Task Note', icon:'📝'}
+  ];
+  const JOURNAL_ENTRY_FIELD_DEFS = {
+    trigger: [
+      ['trigger','What happened?'],
+      ['feeling','What did I feel?'],
+      ['reaction','How did I react?'],
+      ['attachment','Underlying attachment/expectation?'],
+      ['couldObserve','What could I have observed instead?'],
+      ['nextPractice','What will I practice next time?']
+    ],
+    experience: [
+      ['description','Describe the experience'],
+      ['stateOfMind','State of mind'],
+      ['reflection','Reflection'],
+      ['interpretation','Interpretation (kept separate from the experience itself, deliberately)']
+    ],
+    seva: [
+      ['activity','Seva performed'],
+      ['helped','Who/what it helped'],
+      ['timeSpent','Time spent'],
+      ['intention','Intention'],
+      ['expectation','Was there expectation of recognition?']
+    ],
+    guru: [
+      ['guruName','Guru'],
+      ['teachingText','Teaching received today'],
+      ['myUnderstanding','My understanding'],
+      ['application','How I will apply it'],
+      ['applied','Did I apply it? Result?']
+    ],
+    taskNote: [
+      ['taskName','Task'],
+      ['note','Note']
+    ]
+  };
+  const JOURNAL_TEXT_FIELDS = [
+    ['jSankalpaText','sankalpa.text'],
+    ['jSankalpaLearning','sankalpa.learning'],
+    ['jMorningFeeling','morning.feeling'],
+    ['jMorningCareful','morning.careful'],
+    ['jMorningMantra','morning.mantra'],
+    ['jThoughts','thoughts'],
+    ['jPositive','positivePointers'],
+    ['jNegative','negativePointers'],
+    ['jSpiritual','spiritualNotes'],
+    ['jEveningWhat','evening.whatHappened'],
+    ['jEveningLost','evening.lostAwareness'],
+    ['jEveningAware','evening.remainedAware'],
+    ['jEveningImprove','evening.improve'],
+    ['jQuestionAnswer','questionAnswer']
+  ];
+
+  function getDeep(obj, path){ return path.split('.').reduce((o,p)=> (o ? o[p] : undefined), obj); }
+  function setDeep(obj, path, value){
+    const parts = path.split('.');
+    let cur = obj;
+    for(let i=0;i<parts.length-1;i++) cur = cur[parts[i]];
+    cur[parts[parts.length-1]] = value;
+  }
+
+  function defaultJournalEntry(){
+    return {
+      sankalpa: { text:'', outcome:'', learning:'' },
+      morning: { feeling:'', careful:'', mantra:'' },
+      thoughts:'', positivePointers:'', negativePointers:'', spiritualNotes:'',
+      gratitude:['','',''],
+      evening: { whatHappened:'', lostAwareness:'', remainedAware:'', improve:'' },
+      ratings: { awareness:null, discipline:null, peace:null, gratitude:null, selfControl:null },
+      questionOfDay:'', questionAnswer:'',
+      entries:[],
+      updatedAt:null
+    };
+  }
+
+  // Reads (creating if needed) a date's journal entry, back-filling any
+  // fields added to the shape after that entry was first saved — same
+  // pattern as normalizeData(), scoped to one entry instead of the whole
+  // profile.
+  function getJournalEntry(dateStr, createIfMissing){
+    if(!data.journal[dateStr]){
+      if(!createIfMissing) return null;
+      data.journal[dateStr] = defaultJournalEntry();
+      return data.journal[dateStr];
+    }
+    const e = data.journal[dateStr];
+    const def = defaultJournalEntry();
+    if(!e.sankalpa) e.sankalpa = def.sankalpa;
+    if(!e.morning) e.morning = def.morning;
+    if(!e.evening) e.evening = def.evening;
+    if(!e.ratings) e.ratings = def.ratings;
+    if(!Array.isArray(e.gratitude)) e.gratitude = ['','',''];
+    if(!Array.isArray(e.entries)) e.entries = [];
+    ['thoughts','positivePointers','negativePointers','spiritualNotes','questionOfDay','questionAnswer'].forEach(k=>{
+      if(e[k]===undefined) e[k] = '';
+    });
+    return e;
+  }
+  function touchJournalEntry(dateStr){
+    const e = data.journal[dateStr];
+    if(e) e.updatedAt = Date.now();
+    save();
+  }
+  function questionOfTheDay(dateStr){
+    return JOURNAL_QUESTIONS[dailySeed(dateStr) % JOURNAL_QUESTIONS.length];
+  }
+
+  /* ---------- Simple PIN lock (not device biometrics, not field-level
+     encryption — see CLAUDE.md) ---------- */
+  async function hashPin(pin){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('sadhana-journal:'+pin));
+    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+  let journalUnlockedThisSession = false;
+  function journalHasPin(){ return !!(data.settings && data.settings.journalPinHash); }
+  function isJournalLocked(){ return journalHasPin() && !journalUnlockedThisSession; }
+
+  /* ---------- Journal tab ---------- */
+  let journalView = 'today';
+  let journalDate = null;
+  let journalHeaderBuilt = false;
+  let journalPendingEntryType = null;
+
+  function currentJournalDate(){ return journalDate || todayStr(); }
+  function shiftJournalDate(days){
+    const d = new Date(currentJournalDate()+'T00:00:00');
+    d.setDate(d.getDate()+days);
+    journalDate = todayStr(d);
+  }
+
+  function ensureJournalTabDom(){
+    if(journalHeaderBuilt) return;
+    const root = document.getElementById('tab-journal');
+    root.innerHTML = `
+      <div class="journal-toolbar">
+        <div class="cal-tabbar" id="journalViewTabs">
+          <button class="cal-tab on" data-jview="today">Today</button>
+          <button class="cal-tab" data-jview="timeline">Timeline</button>
+          <button class="cal-tab" data-jview="growth">Growth &amp; Goals</button>
+        </div>
+        <button class="icon-btn" id="journalPinSettingsBtn" title="Journal lock settings">🔒</button>
+      </div>
+
+      <div id="journalLockedView" style="display:none;">
+        <div class="account-panel" style="margin:20px auto;">
+          <h3 class="serif" style="margin:0 0 10px;">🔒 Journal is locked</h3>
+          <p class="empty-note" style="margin-bottom:14px;">Enter your PIN to open your journal.</p>
+          <input type="password" inputmode="numeric" maxlength="8" id="journalUnlockInput" placeholder="PIN" class="journal-pin-input">
+          <div class="form-actions">
+            <button class="pill" id="journalUnlockBtn">Unlock</button>
+          </div>
+          <div class="empty-note journal-unlock-error" id="journalUnlockError" style="display:none;"></div>
+        </div>
+      </div>
+
+      <div id="journalContent">
+        <div id="journalTodayView">
+          <div class="cal-nav">
+            <button id="journalDayPrev">‹</button>
+            <h3 id="journalDayLabel"></h3>
+            <button id="journalDayNext">›</button>
+          </div>
+          <div id="journalTodayBody"></div>
+        </div>
+
+        <div id="journalTimelineView" style="display:none;">
+          <input class="cal-search" id="journalSearch" placeholder="Search your journal — e.g. anger, gratitude, Guru">
+          <div id="journalTimelineList" style="margin-top:14px;"></div>
+        </div>
+
+        <div id="journalGrowthView" style="display:none;">
+          <div id="journalGrowthBody"></div>
+        </div>
+      </div>
+
+      <div class="journal-pin-modal" id="journalPinModal" style="display:none;">
+        <div class="account-panel">
+          <h3 class="serif" style="margin:0 0 10px;">Journal lock</h3>
+          <div id="journalPinModalBody"></div>
+          <div class="form-actions">
+            <button class="pill ghost" id="journalPinModalClose">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.querySelectorAll('#journalViewTabs .cal-tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('#journalViewTabs .cal-tab').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on');
+        journalView = btn.dataset.jview;
+        renderJournalTab();
+      });
+    });
+    document.getElementById('journalDayPrev').addEventListener('click', ()=>{ shiftJournalDate(-1); renderJournalToday(); });
+    document.getElementById('journalDayNext').addEventListener('click', ()=>{ shiftJournalDate(1); renderJournalToday(); });
+    document.getElementById('journalSearch').addEventListener('input', ()=> renderJournalTimeline());
+    document.getElementById('journalPinSettingsBtn').addEventListener('click', openJournalPinModal);
+    document.getElementById('journalPinModalClose').addEventListener('click', ()=>{ document.getElementById('journalPinModal').style.display='none'; });
+    document.getElementById('journalUnlockBtn').addEventListener('click', attemptJournalUnlock);
+    document.getElementById('journalUnlockInput').addEventListener('keydown', ev=>{ if(ev.key==='Enter') attemptJournalUnlock(); });
+
+    journalHeaderBuilt = true;
+  }
+
+  async function attemptJournalUnlock(){
+    const pin = document.getElementById('journalUnlockInput').value;
+    const errEl = document.getElementById('journalUnlockError');
+    if(!pin){ return; }
+    const hash = await hashPin(pin);
+    if(hash === data.settings.journalPinHash){
+      journalUnlockedThisSession = true;
+      document.getElementById('journalUnlockInput').value = '';
+      errEl.style.display = 'none';
+      renderJournalTab();
+    } else {
+      errEl.textContent = 'Incorrect PIN.';
+      errEl.style.display = '';
+    }
+  }
+
+  function openJournalPinModal(){
+    const modal = document.getElementById('journalPinModal');
+    const body = document.getElementById('journalPinModalBody');
+    if(journalHasPin()){
+      body.innerHTML = `
+        <p class="empty-note" style="margin-bottom:14px;">Your journal is protected by a PIN. This locks the Journal tab only — it is not device-level biometric security or field-level encryption; anyone with access to your account's data export can still read it.</p>
+        <button class="pill ghost" id="journalPinRemoveBtn">Remove PIN</button>`;
+      document.getElementById('journalPinRemoveBtn').addEventListener('click', ()=>{
+        if(!confirm('Remove the journal PIN? Anyone using this profile will be able to open the Journal without one.')) return;
+        data.settings.journalPinHash = null;
+        journalUnlockedThisSession = true;
+        save();
+        modal.style.display = 'none';
+        renderJournalTab();
+      });
+    } else {
+      body.innerHTML = `
+        <p class="empty-note" style="margin-bottom:14px;">Set a PIN to require it before opening the Journal tab on this profile. Best-effort privacy for a shared device — not encryption, and not recoverable if forgotten (you'd need to remove it via full data export/import).</p>
+        <input type="password" inputmode="numeric" maxlength="8" id="journalPinSetInput" placeholder="Choose a PIN" class="journal-pin-input">
+        <div class="form-actions" style="margin-top:10px;">
+          <button class="pill" id="journalPinSetBtn">Set PIN</button>
+        </div>`;
+      document.getElementById('journalPinSetBtn').addEventListener('click', async ()=>{
+        const pin = document.getElementById('journalPinSetInput').value;
+        if(!pin || pin.length<4){ alert('Choose a PIN of at least 4 digits.'); return; }
+        data.settings.journalPinHash = await hashPin(pin);
+        journalUnlockedThisSession = true;
+        save();
+        modal.style.display = 'none';
+      });
+    }
+    modal.style.display = '';
+  }
+
+  function renderJournalTab(){
+    ensureJournalTabDom();
+    const locked = isJournalLocked();
+    document.getElementById('journalLockedView').style.display = locked ? '' : 'none';
+    document.getElementById('journalContent').style.display = locked ? 'none' : '';
+    document.querySelector('.journal-toolbar').style.display = locked ? 'none' : '';
+    if(locked) return;
+    document.getElementById('journalTodayView').style.display = journalView==='today' ? '' : 'none';
+    document.getElementById('journalTimelineView').style.display = journalView==='timeline' ? '' : 'none';
+    document.getElementById('journalGrowthView').style.display = journalView==='growth' ? '' : 'none';
+    if(journalView==='today') renderJournalToday();
+    if(journalView==='timeline') renderJournalTimeline();
+    if(journalView==='growth') renderJournalGrowth();
+  }
+
+  function renderJournalToday(){
+    const dateStr = currentJournalDate();
+    const entry = getJournalEntry(dateStr, true);
+    if(!entry.questionOfDay) entry.questionOfDay = questionOfTheDay(dateStr);
+    document.getElementById('journalDayLabel').textContent = dateStr===todayStr() ? "Today's Journal" : new Date(dateStr+'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'short', day:'numeric', year:'numeric'});
+
+    const body = document.getElementById('journalTodayBody');
+    body.innerHTML = `
+      <div class="journal-section">
+        <div class="journal-section-title">🌅 Sankalpa — Today's Intention</div>
+        <textarea class="journal-textarea" id="jSankalpaText" placeholder="Today I will...">${escapeHtml(entry.sankalpa.text)}</textarea>
+        <label class="field-label">Did I live it? (reflect in the evening)</label>
+        <select id="jSankalpaOutcome" class="journal-select">
+          <option value="">—</option>
+          <option value="completely">Completely</option>
+          <option value="mostly">Mostly</option>
+          <option value="partially">Partially</option>
+          <option value="not-today">Not today</option>
+        </select>
+        <textarea class="journal-textarea" id="jSankalpaLearning" placeholder="What did I learn?" style="margin-top:8px;">${escapeHtml(entry.sankalpa.learning)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">☀️ Morning</div>
+        <div class="field-row">
+          <div class="field-col"><label class="field-label">How do I feel today?</label><input type="text" id="jMorningFeeling" value="${escapeHtml(entry.morning.feeling)}"></div>
+          <div class="field-col"><label class="field-label">Today's mantra/shloka</label><input type="text" id="jMorningMantra" value="${escapeHtml(entry.morning.mantra)}"></div>
+        </div>
+        <label class="field-label">What should I be careful about?</label>
+        <input type="text" id="jMorningCareful" value="${escapeHtml(entry.morning.careful)}" style="width:100%;">
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">💭 Thoughts for the Day</div>
+        <textarea class="journal-textarea" id="jThoughts" placeholder="What is on my mind? Free-form journaling...">${escapeHtml(entry.thoughts)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">✨ Positive Pointers</div>
+        <textarea class="journal-textarea" id="jPositive" placeholder="What went well today? Good qualities expressed, acts of kindness, moments of gratitude...">${escapeHtml(entry.positivePointers)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">⚠️ Negative Pointers</div>
+        <div class="empty-note" style="margin-bottom:6px;">Self-observation, not self-criticism.</div>
+        <textarea class="journal-textarea" id="jNegative" placeholder="Anger, ego, fear, attachment, laziness, jealousy, unnecessary speech...">${escapeHtml(entry.negativePointers)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">🪷 Spiritual Notes</div>
+        <textarea class="journal-textarea" id="jSpiritual" placeholder="Today's spiritual understanding, Guru's teaching, shloka meaning, satsang notes...">${escapeHtml(entry.spiritualNotes)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">🙏 Gratitude</div>
+        ${[0,1,2].map(i=>`<input type="text" class="journal-gratitude-input" data-g="${i}" placeholder="Grateful for…" value="${escapeHtml(entry.gratitude[i]||'')}" style="width:100%; margin-bottom:6px;">`).join('')}
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">💭 Question of the Day</div>
+        <div class="journal-question">${escapeHtml(entry.questionOfDay)}</div>
+        <textarea class="journal-textarea" id="jQuestionAnswer" placeholder="Your reflection...">${escapeHtml(entry.questionAnswer)}</textarea>
+      </div>
+
+      <div class="journal-section" id="journalEntriesSection">
+        <div class="journal-section-title">🔥 Structured Reflections</div>
+        <div class="empty-note" style="margin-bottom:8px;">Trigger → Reaction → Awareness, Experiences, Seva, Guru teachings, and task notes.</div>
+        <div id="journalEntriesList"></div>
+        <div id="journalEntryFormWrap" style="display:none;"></div>
+        <div class="journal-entry-type-picker">
+          ${JOURNAL_ENTRY_TYPES.map(t=>`<button class="pill ghost" data-add-entry-type="${t.key}">${t.icon} ${escapeHtml(t.label)}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">🌙 Evening Reflection</div>
+        <label class="field-label">What happened today?</label>
+        <textarea class="journal-textarea" id="jEveningWhat">${escapeHtml(entry.evening.whatHappened)}</textarea>
+        <label class="field-label">Where did I lose awareness?</label>
+        <textarea class="journal-textarea" id="jEveningLost">${escapeHtml(entry.evening.lostAwareness)}</textarea>
+        <label class="field-label">Where did I remain aware?</label>
+        <textarea class="journal-textarea" id="jEveningAware">${escapeHtml(entry.evening.remainedAware)}</textarea>
+        <label class="field-label">What will I practice tomorrow?</label>
+        <textarea class="journal-textarea" id="jEveningImprove">${escapeHtml(entry.evening.improve)}</textarea>
+      </div>
+
+      <div class="journal-section">
+        <div class="journal-section-title">📊 How was today?</div>
+        <div class="journal-ratings">
+          ${JOURNAL_RATING_KEYS.map(r=>`
+            <div class="journal-rating-row">
+              <label class="field-label">${r.label}</label>
+              <input type="range" min="0" max="10" step="1" data-rating="${r.key}" value="${entry.ratings[r.key]==null?5:entry.ratings[r.key]}">
+              <span class="journal-rating-val" data-rating-val="${r.key}">${entry.ratings[r.key]==null?'—':entry.ratings[r.key]}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    `;
+
+    JOURNAL_TEXT_FIELDS.forEach(([id, path])=>{
+      const el = document.getElementById(id);
+      if(!el) return;
+      el.addEventListener('change', ()=>{ setDeep(entry, path, el.value); touchJournalEntry(dateStr); });
+    });
+    const outcomeEl = document.getElementById('jSankalpaOutcome');
+    outcomeEl.value = entry.sankalpa.outcome || '';
+    outcomeEl.addEventListener('change', ()=>{ entry.sankalpa.outcome = outcomeEl.value; touchJournalEntry(dateStr); });
+
+    body.querySelectorAll('.journal-gratitude-input').forEach(inp=>{
+      inp.addEventListener('change', ()=>{ entry.gratitude[+inp.dataset.g] = inp.value; touchJournalEntry(dateStr); });
+    });
+
+    body.querySelectorAll('[data-rating]').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const key = inp.dataset.rating;
+        entry.ratings[key] = +inp.value;
+        body.querySelector(`[data-rating-val="${key}"]`).textContent = inp.value;
+      });
+      inp.addEventListener('change', ()=> touchJournalEntry(dateStr));
+    });
+
+    renderJournalEntriesList(entry, dateStr);
+    body.querySelectorAll('[data-add-entry-type]').forEach(btn=>{
+      btn.addEventListener('click', ()=> openJournalEntryForm(dateStr, btn.dataset.addEntryType));
+    });
+
+    if(journalPendingEntryType){
+      const type = journalPendingEntryType.type, prefill = journalPendingEntryType.prefill;
+      journalPendingEntryType = null;
+      openJournalEntryForm(dateStr, type, prefill);
+    }
+  }
+
+  function journalEntryTypeMeta(key){ return JOURNAL_ENTRY_TYPES.find(t=>t.key===key) || JOURNAL_ENTRY_TYPES[0]; }
+
+  function renderJournalEntriesList(entry, dateStr){
+    const el = document.getElementById('journalEntriesList');
+    if(!el) return;
+    if(!entry.entries.length){ el.innerHTML = '<div class="empty-note" style="margin-bottom:10px;">No reflections added yet today.</div>'; return; }
+    el.innerHTML = entry.entries.slice().reverse().map(renderJournalEntryCard).join('');
+    el.querySelectorAll('[data-delete-entry]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        entry.entries = entry.entries.filter(e=>e.id!==btn.dataset.deleteEntry);
+        touchJournalEntry(dateStr);
+        renderJournalEntriesList(entry, dateStr);
+      });
+    });
+  }
+
+  function renderJournalEntryCard(en){
+    const meta = journalEntryTypeMeta(en.type);
+    const fields = JOURNAL_ENTRY_FIELD_DEFS[en.type] || [];
+    const bodyHtml = fields.map(([key,label])=> en[key] ? `<div><b>${escapeHtml(label)}:</b> ${escapeHtml(en[key])}</div>` : '').join('');
+    return `<div class="journal-entry-card">
+      <div class="journal-entry-head">
+        <span>${meta.icon} ${escapeHtml(meta.label)}</span>
+        <button class="edit-icon-btn" data-delete-entry="${en.id}" title="Delete">🗑</button>
+      </div>
+      <div class="journal-entry-body">${bodyHtml || '<span class="empty-note">Empty entry</span>'}</div>
+    </div>`;
+  }
+
+  function openJournalEntryForm(dateStr, type, prefill){
+    const container = document.getElementById('journalEntryFormWrap');
+    if(!container) return;
+    const fields = JOURNAL_ENTRY_FIELD_DEFS[type];
+    const meta = journalEntryTypeMeta(type);
+    container.innerHTML = `
+      <div class="journal-entry-form">
+        <div class="journal-section-title">${meta.icon} ${escapeHtml(meta.label)}</div>
+        ${fields.map(([key,label])=>`
+          <label class="field-label">${escapeHtml(label)}</label>
+          <textarea class="journal-textarea journal-textarea-sm" data-jfield="${key}">${escapeHtml((prefill&&prefill[key])||'')}</textarea>
+        `).join('')}
+        <div class="form-actions">
+          <button class="pill" id="journalEntrySaveBtn">Save</button>
+          <button class="pill ghost" id="journalEntryCancelBtn">Cancel</button>
+        </div>
+      </div>`;
+    container.style.display = '';
+    document.getElementById('journalEntryCancelBtn').addEventListener('click', ()=>{ container.style.display='none'; container.innerHTML=''; });
+    document.getElementById('journalEntrySaveBtn').addEventListener('click', ()=>{
+      const entryObj = { id: uid(), type, createdAt: Date.now() };
+      fields.forEach(([key])=>{ entryObj[key] = container.querySelector(`[data-jfield="${key}"]`).value.trim(); });
+      const entry = getJournalEntry(dateStr, true);
+      entry.entries.push(entryObj);
+      touchJournalEntry(dateStr);
+      container.style.display = 'none';
+      container.innerHTML = '';
+      renderJournalEntriesList(entry, dateStr);
+    });
+    container.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+
+  // Entry point used from Today's Schedule, the Routine tab's expand
+  // panel, Japa/Practice/Reading/Learning rows — "select the task, then
+  // add a note in the journaling section."
+  function openJournalNoteFor(taskName){
+    journalDate = todayStr();
+    journalPendingEntryType = { type:'taskNote', prefill:{ taskName } };
+    const journalTabBtn = document.querySelector('.tab-btn[data-tab="journal"]');
+    if(journalTabBtn) journalTabBtn.click();
+    ensureJournalTabDom();
+    const todayViewBtn = document.querySelector('#journalViewTabs [data-jview="today"]');
+    if(todayViewBtn && !todayViewBtn.classList.contains('on')) todayViewBtn.click();
+    else renderJournalTab();
+  }
+
+  /* ---------- Timeline / diary view + search ---------- */
+  function journalEntryMatchesQuery(dateStr, entry, q){
+    if(!q) return true;
+    const haystack = [
+      entry.thoughts, entry.positivePointers, entry.negativePointers, entry.spiritualNotes,
+      entry.sankalpa.text, entry.sankalpa.learning, entry.morning.feeling, entry.morning.careful,
+      entry.evening.whatHappened, entry.evening.lostAwareness, entry.evening.remainedAware, entry.evening.improve,
+      entry.questionOfDay, entry.questionAnswer, ...(entry.gratitude||[]),
+      ...entry.entries.flatMap(en=>Object.values(en).filter(v=>typeof v==='string'))
+    ].join(' \n ').toLowerCase();
+    return haystack.includes(q);
+  }
+
+  function journalDaySummaryLine(dateStr){
+    const day = data.logs[dateStr];
+    const bits = [];
+    if(day){
+      let japaSec=0, practiceSec=0;
+      if(day.japa) Object.values(day.japa).forEach(sMap=>Object.values(sMap).forEach(e=>japaSec+=(e.seconds||0)));
+      if(day.practice) Object.values(day.practice).forEach(sMap=>Object.values(sMap).forEach(e=>practiceSec+=(e.seconds||0)));
+      if(japaSec>0) bits.push('📿 Japa '+fmtShort(japaSec));
+      if(practiceSec>0) bits.push('🧘 Practice '+fmtShort(practiceSec));
+      if(day.reading && Object.values(day.reading).some(v=>v>0)) bits.push('📖 Reading logged');
+    }
+    return bits;
+  }
+
+  function renderJournalTimeline(){
+    const el = document.getElementById('journalTimelineList');
+    const q = (document.getElementById('journalSearch').value||'').trim().toLowerCase();
+    const dates = Object.keys(data.journal).sort().reverse();
+    const matched = dates.filter(d=> journalEntryMatchesQuery(d, data.journal[d], q));
+    if(matched.length===0){
+      el.innerHTML = `<div class="empty-note">${q ? 'No journal entries match that search.' : 'No journal entries yet — write in Today to begin.'}</div>`;
+      return;
+    }
+    el.innerHTML = matched.map(d=>{
+      const entry = data.journal[d];
+      const label = new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric', year:'numeric'});
+      const chips = journalDaySummaryLine(d);
+      const snippets = [];
+      if(entry.thoughts) snippets.push('💭 '+entry.thoughts);
+      if(entry.positivePointers) snippets.push('✨ '+entry.positivePointers);
+      if(entry.negativePointers) snippets.push('⚠️ '+entry.negativePointers);
+      if(entry.spiritualNotes) snippets.push('🪷 '+entry.spiritualNotes);
+      if(entry.gratitude && entry.gratitude.some(Boolean)) snippets.push('🙏 '+entry.gratitude.filter(Boolean).join(' · '));
+      entry.entries.forEach(en=>{
+        const meta = journalEntryTypeMeta(en.type);
+        const firstField = (JOURNAL_ENTRY_FIELD_DEFS[en.type]||[])[0];
+        const preview = firstField ? en[firstField[0]] : '';
+        if(preview) snippets.push(meta.icon+' '+preview);
+      });
+      return `<div class="journal-timeline-day" data-jump-date="${d}">
+        <div class="journal-timeline-date">${label}</div>
+        ${chips.length ? `<div class="journal-timeline-chips">${chips.map(c=>`<span>${escapeHtml(c)}</span>`).join('')}</div>` : ''}
+        <div class="journal-timeline-snippets">${snippets.slice(0,4).map(s=>`<div>${escapeHtml(s).slice(0,140)}</div>`).join('') || '<span class="empty-note">No written entries this day.</span>'}</div>
+      </div>`;
+    }).join('');
+    el.querySelectorAll('.journal-timeline-day').forEach(card=>{
+      card.addEventListener('click', ()=>{
+        journalDate = card.dataset.jumpDate;
+        journalView = 'today';
+        document.querySelectorAll('#journalViewTabs .cal-tab').forEach(b=>b.classList.remove('on'));
+        document.querySelector('#journalViewTabs .cal-tab[data-jview="today"]').classList.add('on');
+        renderJournalTab();
+      });
+    });
+  }
+
+  /* ---------- Growth trend + long-term goals ---------- */
+  function journalRatingAverages(days){
+    const dates = [];
+    for(let i=0;i<days;i++) dates.push(todayStr(new Date(Date.now()-i*86400000)));
+    const sums = {}, counts = {};
+    JOURNAL_RATING_KEYS.forEach(r=>{ sums[r.key]=0; counts[r.key]=0; });
+    dates.forEach(d=>{
+      const entry = data.journal[d];
+      if(!entry || !entry.ratings) return;
+      JOURNAL_RATING_KEYS.forEach(r=>{
+        const v = entry.ratings[r.key];
+        if(v!=null){ sums[r.key]+=v; counts[r.key]++; }
+      });
+    });
+    const avgs = {};
+    JOURNAL_RATING_KEYS.forEach(r=>{ avgs[r.key] = counts[r.key] ? (sums[r.key]/counts[r.key]) : null; });
+    return avgs;
+  }
+
+  function renderJournalGrowth(){
+    const el = document.getElementById('journalGrowthBody');
+    const periods = [[7,'7 days'],[30,'30 days'],[90,'3 months'],[365,'1 year']];
+    el.innerHTML = `
+      <div class="journal-section">
+        <div class="journal-section-title">📊 Growth — am I becoming more aware?</div>
+        <div class="empty-note" style="margin-bottom:12px;">Averages of your daily self-ratings. Not a score to chase — a mirror to notice trends in.</div>
+        <div class="growth-period-tabs" id="growthPeriodTabs">
+          ${periods.map((p,i)=>`<button class="cal-tab${i===0?' on':''}" data-days="${p[0]}">${p[1]}</button>`).join('')}
+        </div>
+        <div id="growthBars" style="margin-top:12px;"></div>
+      </div>
+      <div class="journal-section">
+        <div class="journal-section-title">🧭 Long-Term Spiritual Goals</div>
+        <div id="journalGoalsList"></div>
+        <div class="journal-goal-add">
+          <input type="text" id="journalGoalCategory" placeholder="Category, e.g. Practice, Study, Character, Seva">
+          <input type="text" id="journalGoalTitle" placeholder="Goal">
+          <button class="pill" id="journalGoalAddBtn">Add goal</button>
+        </div>
+      </div>
+    `;
+    function renderBarsFor(days){
+      const avgs = journalRatingAverages(days);
+      document.getElementById('growthBars').innerHTML = JOURNAL_RATING_KEYS.map(r=>{
+        const v = avgs[r.key];
+        const pct = v==null ? 0 : (v/10*100);
+        return `<div class="balance-row">
+          <span class="balance-label">${r.label}</span>
+          <div class="balance-bar"><i style="width:${pct}%"></i></div>
+          <span class="balance-val">${v==null?'—':v.toFixed(1)}</span>
+        </div>`;
+      }).join('');
+    }
+    renderBarsFor(7);
+    document.querySelectorAll('#growthPeriodTabs .cal-tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('#growthPeriodTabs .cal-tab').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on');
+        renderBarsFor(+btn.dataset.days);
+      });
+    });
+    renderJournalGoalsList();
+    document.getElementById('journalGoalAddBtn').addEventListener('click', ()=>{
+      const title = document.getElementById('journalGoalTitle').value.trim();
+      if(!title) return;
+      const category = document.getElementById('journalGoalCategory').value.trim() || 'General';
+      data.journalGoals.push({ id:uid(), category, title, done:false, createdAt:Date.now() });
+      document.getElementById('journalGoalTitle').value = '';
+      save();
+      renderJournalGoalsList();
+    });
+  }
+
+  function renderJournalGoalsList(){
+    const el = document.getElementById('journalGoalsList');
+    if(!el) return;
+    if(data.journalGoals.length===0){ el.innerHTML = '<div class="empty-note" style="margin-bottom:10px;">No long-term goals yet.</div>'; return; }
+    el.innerHTML = data.journalGoals.map(g=>`
+      <div class="journal-goal-row ${g.done?'done':''}">
+        <input type="checkbox" data-goal-toggle="${g.id}" ${g.done?'checked':''}>
+        <span class="journal-goal-cat">${escapeHtml(g.category)}</span>
+        <span class="journal-goal-title">${escapeHtml(g.title)}</span>
+        <button class="edit-icon-btn" data-goal-delete="${g.id}" title="Delete">🗑</button>
+      </div>`).join('');
+    el.querySelectorAll('[data-goal-toggle]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const g = data.journalGoals.find(x=>x.id===cb.dataset.goalToggle);
+        if(g){ g.done = cb.checked; save(); renderJournalGoalsList(); }
+      });
+    });
+    el.querySelectorAll('[data-goal-delete]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        data.journalGoals = data.journalGoals.filter(x=>x.id!==btn.dataset.goalDelete);
+        save();
+        renderJournalGoalsList();
+      });
+    });
+  }
+
   function categoryMeta(key){ return ACTIVITY_CATEGORIES.find(c=>c.key===key) || ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length-1]; }
   function categoryColor(key){ return categoryMeta(key).color; }
   function categoryLabel(key){ return categoryMeta(key).label; }
@@ -1464,6 +2179,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     return `<div class="item-row activity-row" data-activity="${activity.id}">
       <div class="row-flex">
         <span class="item-title"><span class="activity-dot" style="background:${color}"></span>${activity.icon?escapeHtml(activity.icon)+' ':''}${escapeHtml(activity.name)}</span>
+        <button class="edit-icon-btn" data-journal-note="${escapeHtml(activity.name)}" title="Add journal note">📝</button>
         ${editBtn}
       </div>
       <div class="item-sub">${timeLabel} · ${categoryLabel(activity.category)} · ${priorityLabel(activity.priority)}</div>
@@ -1488,6 +2204,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     });
     container.querySelectorAll('.activity-edit-btn').forEach(b=>{
       b.addEventListener('click', (ev)=>{ ev.stopPropagation(); openActivityEditor(b.dataset.id); });
+    });
+    container.querySelectorAll('[data-journal-note]').forEach(b=>{
+      b.addEventListener('click', (ev)=>{ ev.stopPropagation(); openJournalNoteFor(b.dataset.journalNote); });
     });
     container.querySelectorAll('[data-flex-schedule]').forEach(inp=>{
       inp.addEventListener('change', ()=>{
@@ -2310,6 +3029,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       ${block.conflict ? `<div class="expand-conflict">⚠ Overlaps with ${escapeHtml(block.conflictNames.join(', '))}</div>` : ''}
       <div class="expand-actions">${actionsHtml}</div>
       <div class="expand-actions">${manageHtml}</div>
+      <div class="expand-actions"><button class="pill ghost" id="expandJournalBtn">📝 Journal note</button></div>
     `;
     panel.style.display = '';
     panel.classList.remove('expand-in');
@@ -2317,6 +3037,10 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     panel.classList.add('expand-in');
 
     document.getElementById('expandCloseBtn').addEventListener('click', ()=>{ panel.style.display='none'; });
+    document.getElementById('expandJournalBtn').addEventListener('click', ()=>{
+      panel.style.display = 'none';
+      openJournalNoteFor(block.name);
+    });
     panel.querySelectorAll('[data-block-act]').forEach(btn=>{
       btn.addEventListener('click', ()=> handleBlockAction(btn.dataset.blockAct, block, dateStr));
     });
@@ -3042,11 +3766,38 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
 
+  function computeTodayKindSeconds(kind){
+    const day = data.logs[todayStr()];
+    let total = 0;
+    if(day && day[kind]) Object.values(day[kind]).forEach(sMap=>Object.values(sMap).forEach(e=>total+=(e.seconds||0)));
+    if(kind==='practice'){
+      // Practice timers are visible (not fullscreen), so add live elapsed
+      // for any session currently running. Japa's timer is only ever
+      // running inside the fullscreen counter, which covers the whole
+      // screen (so this header strip isn't even visible then) — its
+      // persisted seconds are enough, refreshed when that closes.
+      Object.keys(runningTimers).forEach(key=>{
+        if(key.startsWith('activity|')) return;
+        total += (Date.now()-runningTimers[key].startTime)/1000;
+      });
+    }
+    return total;
+  }
+
+  function renderStatsStrip(){
+    const practiceEl = document.getElementById('statsPracticeTime');
+    const japaEl = document.getElementById('statsJapaTime');
+    if(!practiceEl || !japaEl) return;
+    practiceEl.textContent = fmtShort(computeTodayKindSeconds('practice'));
+    japaEl.textContent = fmtShort(computeTodayKindSeconds('japa'));
+  }
+
   function renderAll(){
     renderJapa();
     renderPractice();
     renderReading();
     renderLearning();
     renderTodaySchedule();
+    renderStatsStrip();
   }
 

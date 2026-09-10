@@ -43,8 +43,11 @@ js/app.js                The tracker UI logic: profiles, japa, practice,
                          Chakra Dharana iframe, the Routine Scheduler
                          (Today's Schedule section, the Routine tab's
                          timeline/weekly/overview views, activity CRUD,
-                         templates), and reminders (best-effort browser
-                         notifications). One file, one module scope — see
+                         templates), reminders (best-effort browser
+                         notifications), the header stats strip
+                         (Practice/Japa time today), and the Journal tab
+                         (spiritual journaling — see "Journal module"
+                         below). One file, one module scope — see
                          "Routine Scheduler module" below for
                          why it wasn't split out.
 js/chakra-data.js        A large base64-encoded standalone HTML document
@@ -87,11 +90,14 @@ Each profile's `sadhana-data-<profileId>` blob additionally holds (added by
 the Routine Scheduler, see below): `activities` (custom/flexible activity
 definitions), `templates` + `activeTemplateId` (saved routine snapshots),
 and `mandatorySchedule` (optional display-time/duration overrides for the
-Japa/Practice sandhyas, used only to position them on the timeline). New
-profiles get these via `defaultData()`; profiles created before this
-feature existed are back-filled by `normalizeData()` the first time they're
-loaded — always route a freshly-fetched profile blob through
-`normalizeData()` rather than using `JSON.parse()` directly.
+Japa/Practice sandhyas, used only to position them on the timeline). It also
+holds (added by the Journal module, see below): `journal` (one entry object
+per date, keyed by `dateStr`) and `journalGoals` (a flat array of long-term
+spiritual goals). New profiles get all of these via `defaultData()`;
+profiles created before a given feature existed are back-filled by
+`normalizeData()` the first time they're loaded — always route a
+freshly-fetched profile blob through `normalizeData()` rather than using
+`JSON.parse()` directly.
 
 ## Routine Scheduler module
 
@@ -252,6 +258,116 @@ instead:
   reminders not firing, this is the first thing to check — it is not
   necessarily a bug.
 
+## Header stats strip
+
+A one-line bar (`#statsStrip` in index.html, styled by `.stats-strip` in
+css/styles.css) sits above the header, visible on every tab, showing
+**Practice today** and **Japa today** as short durations (`fmtShort()`, e.g.
+`42m`).
+
+- `computeTodayKindSeconds(kind)` (kind is `'practice'` or `'japa'`) sums
+  `data.logs[todayStr()][kind]` seconds across all counters/sandhyas, plus —
+  for `'practice'` only — the live elapsed time of any currently-running
+  practice timer. Japa's running timer only ever exists inside the
+  fullscreen japa counter (which covers the whole screen, hiding this strip
+  anyway), so its live elapsed time isn't added; the persisted total is
+  refreshed the moment that overlay closes.
+- `renderStatsStrip()` writes both values and is called from `renderAll()`
+  plus every place that already ticks the visible timers or commits a
+  session (`startPractice`'s interval, `stopPractice`, the activity timer
+  interval, `closeJapaFullscreen`) — it does not have its own timer loop.
+
+## Journal module
+
+Added after the Routine Scheduler and Calendar Dashboard, as a fifth main
+tab (`#tab-journal`, nav order Today / Routine / **Journal** / Calendar /
+Guru's Teachings). Lives in the same `js/app.js` module scope as everything
+else, for the same reason the Routine Scheduler does (direct access to
+`data`, `save()`, `todayStr()`, `escapeHtml()`, `uid()`, `dailySeed()`,
+without a second cross-module event contract).
+
+**Data model** — one entry object per calendar date, keyed by `dateStr`,
+under `data.journal[dateStr]` (back-filled to `{}` by `normalizeData()` for
+profiles created before this feature existed — always go through
+`getJournalEntry(dateStr, createIfMissing)` rather than touching
+`data.journal[...]` directly, so a missing date is created with the full
+default shape instead of `undefined` field accesses blowing up). Each entry
+(`defaultJournalEntry()`) holds: `sankalpa` (morning intention/evening
+outcome/learning), `morning` (feeling/mantra/what to be careful of),
+`thoughts`, `positivePointers`, `negativePointers`, `spiritualNotes`,
+`gratitude` (3 slots), `evening` (what happened/lost awareness/remained
+aware/tomorrow's practice), `ratings` (5 self-observation sliders, 0-10 or
+`null` if unset — see Growth view below), `questionOfDay` +
+`questionAnswer`, and `entries` (the structured-reflections list, see
+below). `data.journalGoals` is a separate flat, manually-maintained array
+(long-term spiritual goals), not linked to any specific date.
+
+- **One generic mechanism for five entry types, not five.** Trigger →
+  Reaction → Awareness, Experience, Seva, Guru Teaching, and Task Note are
+  structurally identical — "a repeatable dated entry with a handful of text
+  fields" — so they share one data shape (`{id, type, createdAt, ...fields}`
+  pushed into `entry.entries`), one field-schema table
+  (`JOURNAL_ENTRY_FIELD_DEFS`, keyed by type), and one render/CRUD path
+  (`renderJournalEntriesList` / `renderJournalEntryCard` /
+  `openJournalEntryForm`) instead of five near-duplicate ones. Adding a
+  sixth entry type is a matter of adding one `JOURNAL_ENTRY_TYPES` /
+  `JOURNAL_ENTRY_FIELD_DEFS` entry, not new UI code.
+- **Simple field bindings via a lookup table.** `JOURNAL_TEXT_FIELDS` is a
+  flat list of `[elementId, dotted-path-into-entry]` pairs, wired generically
+  via `getDeep`/`setDeep` — this covers the many one-off textareas/inputs
+  (Sankalpa, Morning, Thoughts, Pointers, Spiritual Notes, Evening
+  Reflection, Question answer) without a repetitive block of
+  `document.getElementById(...).addEventListener(...)` per field.
+- **Task Note ties a journal entry back to whatever you were doing.**
+  `openJournalNoteFor(taskName)` switches to the Journal tab, jumps to
+  Today, and opens a pre-filled `taskNote` entry form. It's wired from a
+  small 📝 icon-button next to: each japa counter and practice's row title,
+  each book and learning track's row, every Today's Schedule / Routine
+  activity row (`renderActivityRow`), and the Routine tab's block expand
+  panel (`openBlockExpand`) — i.e. "select the task, then add notes in the
+  journaling section," as opposed to a separate unlinked note field. It
+  always opens on *today's* entry, even when triggered from a
+  non-today Routine block — the task name still carries over as context.
+- **Question of the Day is deterministic, not random.** `questionOfTheDay(
+  dateStr)` reuses the same `dailySeed(str)` hash the daily Guru's-quote
+  card already used, so every device shows the same self-inquiry question
+  on a given date without needing to sync which question was "already
+  shown."
+- **Growth view is trend-only, on purpose.** `renderJournalGrowth()` shows
+  period-averaged (7/30/90/365-day) bars for the 5 self-ratings via
+  `journalRatingAverages(days)` — no point totals, streak counters, badges,
+  or leaderboard-style scoring. This was an explicit requirement ("avoid
+  making spirituality into a gamified competition"): the question the view
+  answers is "am I becoming more aware?", not "how many points did I
+  score?". Long-Term Spiritual Goals live in the same view as a plain
+  checklist (`data.journalGoals`), not folded into the ratings chart.
+- **PIN lock is a UI gate, not encryption.** `data.settings.journalPinHash`
+  (SHA-256 of the PIN via `crypto.subtle.digest`, never the PIN itself) is
+  checked by `isJournalLocked()`; `journalUnlockedThisSession` (module-level,
+  in-memory only) stays true until switch-user or sign-out
+  (`journalUnlockedThisSession = false` is set in both the `switchUserBtn`
+  handler and `resetAppState()`, alongside the existing
+  `clearAllReminderTimers()` call — same lifecycle). This locks the Journal
+  *tab* on a shared device; it is explicitly documented in-app (the lock
+  settings modal) as not being field-level encryption — a full data
+  export/import still exposes journal contents in plaintext, same as every
+  other tracker field.
+- **Search and the diary/timeline view reuse the same data, no separate
+  index.** `renderJournalTimeline()` iterates `data.journal` directly;
+  `journalEntryMatchesQuery()` flattens every text field (including nested
+  `entries`) into one lowercased haystack per date for substring search —
+  there's no separate search index to keep in sync.
+- **Deferred from the original brief, and why:** AI Reflection (the user
+  explicitly framed this as optional, and it needs a real backend call —
+  out of scope for a no-build, client-only app), device-level biometric
+  unlock and field-level encryption (PIN lock covers the "shared device,
+  casual privacy" case; true encryption would need a key-management story
+  this app doesn't have), and "Witness Mode" as a distinct standalone mode
+  (its spirit — observe-first, non-judgmental self-inquiry — is already the
+  framing of the Evening Reflection and Trigger→Reaction→Awareness
+  sections; a dedicated mode/UI for it is a future addition, not built
+  here).
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -356,6 +472,43 @@ browser:
 9. Login screen: with a guru photo set, sign out and back in — the daily
    quote card on the user-select screen shows the photo as a small square
    beside the quote text, not as a full-screen background.
+10. Header stats strip: start a practice session (or a custom activity) and
+    confirm "Practice today" ticks up live once a second while it's
+    running, and both "Practice today"/"Japa today" reflect the correct
+    totals after completing a session and after a page reload.
+11. Journal — Today: fill in Sankalpa, Morning, Thoughts, a Positive and a
+    Negative Pointer, Spiritual Notes, all 3 Gratitude fields, the Question
+    of the Day answer, Evening Reflection, and drag all 5 rating sliders.
+    Reload and confirm every field persisted. Confirm the same Question of
+    the Day text appears again after reload (deterministic, not re-rolled).
+    Use the ‹ › day navigation to move to yesterday/tomorrow and back
+    without losing today's unsaved-but-already-committed fields.
+12. Journal — structured reflections: add one entry of each type (Trigger →
+    Reaction → Awareness, Experience, Seva, Guru Teaching, Task Note),
+    confirm each renders with its icon/label and only its own fields, then
+    delete one and confirm it's removed.
+13. Journal — task-linked notes: click the 📝 icon next to a japa counter, a
+    practice, a book, a learning track, a Today's Schedule/Routine activity
+    row, and a Routine-tab block's expand panel. Each should switch to the
+    Journal tab, land on Today, and open a pre-filled Task Note form naming
+    that task.
+14. Journal — Timeline: with entries on at least two different dates, open
+    the Timeline view and confirm both days list with correct date labels,
+    Japa/Practice summary chips (cross-referenced from `data.logs`, not the
+    journal itself), and text snippets. Search for a word that only appears
+    on one day and confirm the list filters to just that day; clicking a
+    day jumps to Journal → Today for that date.
+15. Journal — Growth & Goals: with ratings saved on a few different days,
+    switch between the 7/30/90/365-day tabs and confirm the bars/averages
+    update. Add a long-term goal, check it done, and delete it — confirm
+    the checklist state persists across a reload. Confirm the Growth view
+    shows plain averages/checkboxes only — no points, streaks, or
+    leaderboard-style score.
+16. Journal — PIN lock: set a PIN from the 🔒 icon, reload, and confirm the
+    Journal tab shows the locked screen until the correct PIN is entered;
+    an incorrect PIN shows an error and stays locked. Switch profiles (or
+    sign out and back in) and confirm the Journal is locked again on
+    return. Remove the PIN and confirm the tab opens directly.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

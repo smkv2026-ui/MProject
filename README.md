@@ -109,6 +109,18 @@ its scope covers the whole app.
   closed for a long time (especially on iOS, unless the app is added to
   your Home Screen) may not deliver them. The first reminder you set will
   prompt for notification permission.
+- A one-line strip above the header always shows today's total **Practice**
+  and **Japa** time, updating live while a session is running.
+- **Journal** (the **Journal** tab) is a structured spiritual journal, not
+  a plain diary: a daily Sankalpa/Morning/Evening flow, Thoughts/Pointers/
+  Spiritual Notes/Gratitude, a daily self-inquiry question, structured
+  reflections (Trigger→Reaction→Awareness, Experiences, Seva, Guru
+  Teachings, and task-linked notes — tap the 📝 icon next to any japa
+  counter, practice, book, learning track, or Routine activity to add a
+  note for that item), a trend-only Growth view of self-ratings over time
+  plus a long-term goals checklist, a searchable Timeline of past entries,
+  and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
+  shared device.
 
 ## Project layout
 
