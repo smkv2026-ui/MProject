@@ -384,24 +384,19 @@
 
   /* ---------- Daily quote on user-select screen ---------- */
   .user-screen{ position:relative; overflow:hidden; }
-  .user-quote-bg{
-    position:absolute; inset:0; background-size:cover; background-position:center;
-    filter:saturate(0.9); opacity:0; transition:opacity 0.6s ease; z-index:0;
-  }
-  .user-quote-bg.show{ opacity:1; }
-  .user-quote-scrim{ position:absolute; inset:0; background:rgba(10,9,6,0); transition:background 0.4s ease; z-index:0; }
-  .user-screen.has-quote-bg .user-quote-scrim{ background:rgba(10,9,6,0.55); }
   .user-screen-inner{ position:relative; z-index:1; }
-  .user-screen.has-quote-bg .user-screen-inner h1,
-  .user-screen.has-quote-bg .user-tagline{ color:#fff; text-shadow:0 1px 6px rgba(0,0,0,0.6); }
   .daily-quote-card{
-    display:none; max-width:420px; margin:0 auto 24px; padding:16px 18px; border-radius:var(--radius);
-    background:rgba(20,18,12,0.42); backdrop-filter:blur(3px); border:1px solid rgba(255,255,255,0.18);
-    text-align:left;
+    display:none; gap:12px; align-items:flex-start; max-width:420px; margin:0 auto 24px;
+    padding:14px 16px; border-radius:var(--radius); background:var(--bg-raised); border:1px solid var(--line);
+    box-shadow:var(--shadow); text-align:left;
   }
-  .user-screen.has-quote-bg .daily-quote-card{ display:block; }
-  .daily-quote-text{ font-family:'Fraunces',serif; font-size:15px; color:#fff; line-height:1.5; font-style:italic; }
-  .daily-quote-attrib{ font-size:12px; color:rgba(255,255,255,0.8); margin-top:8px; font-weight:600; }
+  .daily-quote-photo{
+    width:56px; height:56px; border-radius:8px; object-fit:cover; flex-shrink:0;
+    background:var(--bg); border:1px solid var(--line);
+  }
+  .daily-quote-body{ min-width:0; }
+  .daily-quote-text{ font-family:'Fraunces',serif; font-size:15px; color:var(--ink); line-height:1.5; font-style:italic; }
+  .daily-quote-attrib{ font-size:12px; color:var(--ink-soft); margin-top:8px; font-weight:600; }
 
   /* ---------- Guru's Teachings tab ---------- */
   #tab-gurus{ position:relative; border-radius:var(--radius); overflow:hidden; }
@@ -714,3 +709,86 @@
   .overview-chip{ border:1.5px solid var(--line); border-radius:20px; padding:5px 12px; font-size:12px; font-weight:600; }
   .overview-arrow{ color:var(--ink-soft); font-size:12px; }
   .overview-divider{ text-align:center; color:var(--ink-soft); font-size:13px; margin:-2px 0; }
+
+  /* ================= Calendar Dashboard ================= */
+  .cal-dash{ margin-bottom:24px; }
+
+  .dash-bucket{ margin-bottom:16px; }
+  .dash-bucket-title{ font-family:'Fraunces',serif; font-size:15px; font-weight:600; color:var(--gold); margin-bottom:8px; }
+  .dash-bucket-list{ display:flex; flex-direction:column; gap:6px; }
+  .dash-row{
+    display:flex; align-items:center; gap:10px; padding:8px 10px; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--bg-raised); font-size:12.5px; flex-wrap:wrap;
+  }
+  .dash-row-icon{ flex-shrink:0; }
+  .dash-row-name{ font-weight:600; flex:1 1 140px; min-width:0; }
+  .dash-row-time{ color:var(--ink-soft); font-variant-numeric:tabular-nums; flex-shrink:0; }
+  .dash-row-duration{ color:var(--ink-soft); font-size:11.5px; flex-shrink:0; }
+  .dash-status-pill{
+    font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.3px;
+    padding:3px 9px; border-radius:20px; flex-shrink:0;
+  }
+  .dash-status-pill.status-done{ background:rgba(102,128,90,0.16); color:var(--sage); }
+  .dash-status-pill.status-running{ background:rgba(162,84,58,0.16); color:var(--rust); animation:calPulse 1.8s ease-in-out infinite; }
+  .dash-status-pill.status-overdue{ background:rgba(162,84,58,0.16); color:var(--rust); }
+  .dash-status-pill.status-pending{ background:rgba(92,110,147,0.14); color:var(--accent-soft); }
+
+  /* Weekly */
+  .dash-week-row{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .dash-week-col{
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-raised); padding:8px 4px;
+    text-align:center; cursor:pointer; transition:.15s; display:flex; flex-direction:column; align-items:center; gap:6px;
+  }
+  .dash-week-col:hover{ border-color:var(--gold); transform:translateY(-2px); }
+  .dash-week-col.today{ border-color:var(--gold); }
+  .dash-week-head{ font-size:10.5px; font-weight:700; text-transform:uppercase; color:var(--ink-soft); line-height:1.5; }
+  .dash-week-date{ font-family:'Fraunces',serif; font-size:14px; color:var(--ink); }
+  .dash-week-bar{
+    width:16px; height:48px; border-radius:4px; background:var(--line); overflow:hidden;
+    display:flex; flex-direction:column-reverse;
+  }
+  .bar-seg.bar-done{ background:var(--sage); }
+  .bar-seg.bar-overdue{ background:var(--rust); }
+  .bar-seg.bar-pending{ background:var(--accent-soft); }
+  .dash-week-counts{ font-size:11px; font-weight:600; color:var(--ink-soft); }
+
+  @media (max-width:520px){
+    .dash-week-row{ grid-template-columns:repeat(7,minmax(0,1fr)); gap:3px; }
+    .dash-week-col{ padding:6px 2px; }
+    .dash-week-bar{ width:10px; height:36px; }
+  }
+
+  /* Monthly */
+  .dash-month-grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:5px; }
+  .dash-month-dow{ font-size:10px; text-align:center; color:var(--ink-soft); font-weight:700; text-transform:uppercase; padding-bottom:4px; }
+  .dash-month-cell{
+    min-height:38px; display:flex; align-items:center; justify-content:center; border-radius:6px;
+    font-size:12px; font-weight:600; border:1px solid var(--line); background:var(--bg-raised); cursor:pointer; transition:.15s;
+  }
+  .dash-month-cell.empty{ border:none; background:none; cursor:default; }
+  .dash-month-cell:not(.empty):hover{ transform:translateY(-2px); box-shadow:0 3px 8px rgba(0,0,0,0.1); }
+  .dash-month-cell.today{ border-color:var(--gold); border-width:2px; }
+  .dash-month-cell.level-high{ background:rgba(102,128,90,0.22); }
+  .dash-month-cell.level-mid{ background:rgba(184,134,59,0.22); }
+  .dash-month-cell.level-low{ background:rgba(162,84,58,0.18); }
+
+  /* Yearly */
+  .dash-year-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:8px; }
+  .dash-year-cell{
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-raised); padding:12px 8px;
+    text-align:center; cursor:pointer; transition:.15s;
+  }
+  .dash-year-cell:hover{ border-color:var(--gold); transform:translateY(-2px); }
+  .dash-year-month{ font-size:11px; font-weight:700; text-transform:uppercase; color:var(--ink-soft); letter-spacing:0.3px; }
+  .dash-year-pct{ font-family:'Fraunces',serif; font-size:20px; font-weight:700; color:var(--gold); margin-top:4px; }
+  .dash-year-cell.level-high .dash-year-pct{ color:var(--sage); }
+  .dash-year-cell.level-low .dash-year-pct{ color:var(--rust); }
+
+  /* ---------- Reminders ---------- */
+  .reminder-control{ display:inline-flex; align-items:center; gap:7px; }
+  .reminder-icon{ font-size:13px; flex-shrink:0; }
+  .reminder-control input[type=time]{
+    padding:6px 8px; border:1px solid var(--line); border-radius:var(--radius); background:var(--bg);
+    color:var(--ink); font-family:'Inter'; font-size:12.5px;
+  }
+  .reminder-clear-btn{ padding:5px 10px; font-size:11.5px; }

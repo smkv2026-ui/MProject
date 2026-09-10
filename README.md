@@ -94,6 +94,21 @@ its scope covers the whole app.
   Guru's Teachings, the fullscreen japa counter, Chakra Dharana, theme
   toggle, and JSON export/import — works exactly as it did before, except
   it now actually persists, and persists to everyone in your shared space.
+- **Routine Scheduler** (the **Routine** tab) lets you add your own daily
+  activities beyond the four mandatory practices — set a time, duration,
+  and repeat pattern, then drag them around a visual daily timeline or
+  browse a weekly/overview view. Scheduled activities also show up in
+  Today's Schedule, below the mandatory sections.
+- **Calendar → Daily/Weekly/Monthly/Yearly** gives a reporting view of
+  what's done, overdue, or pending, without changing any of the original
+  month-view/search/filter tools further down the same tab.
+- **Reminders** (🔔 icon next to any task) send a browser notification once
+  a day at a time you set. These are best-effort, browser-based reminders,
+  not guaranteed OS alarms — they work reliably while you've used the
+  app/browser recently on that device, but a browser that's been fully
+  closed for a long time (especially on iOS, unless the app is added to
+  your Home Screen) may not deliver them. The first reminder you set will
+  prompt for notification permission.
 
 ## Project layout
 

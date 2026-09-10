@@ -37,12 +37,15 @@ js/auth-ui.js            Sign in / create account / Google sign-in / password
                          app.js only via DOM CustomEvents (see Event contract)
                          — the two files do not import each other.
 js/app.js                The tracker UI logic: profiles, japa, practice,
-                         reading, learning, calendar, Guru's Teachings, the
-                         fullscreen japa counter, the Chakra Dharana iframe,
-                         and the Routine Scheduler (Today's Schedule section,
-                         the Routine tab's timeline/weekly/overview views,
-                         activity CRUD, templates). One file, one module
-                         scope — see "Routine Scheduler module" below for
+                         reading, learning, calendar (including the
+                         Daily/Weekly/Monthly/Yearly Calendar Dashboard),
+                         Guru's Teachings, the fullscreen japa counter, the
+                         Chakra Dharana iframe, the Routine Scheduler
+                         (Today's Schedule section, the Routine tab's
+                         timeline/weekly/overview views, activity CRUD,
+                         templates), and reminders (best-effort browser
+                         notifications). One file, one module scope — see
+                         "Routine Scheduler module" below for
                          why it wasn't split out.
 js/chakra-data.js        A large base64-encoded standalone HTML document
                          (the "Chakra Dharana" visualizer) rendered in an
@@ -151,13 +154,103 @@ isn't mistaken for an oversight):
   drag/resize/expand toolset is available), plus "Duplicate" from the
   expand panel to copy an activity elsewhere — not true drag-and-drop
   across weekday columns.
-- **No separate multi-year Insights/Progress tab.** `renderRoutineAnalytics()`
-  covers the current day only (scheduled/completed/remaining time, a
-  category breakdown). A "what did I miss and when" historical drill-down
-  across days/weeks/months would be a substantial feature on its own.
+- **`renderRoutineAnalytics()`** (inside the Routine tab) covers the
+  current day only (scheduled/completed/remaining time, a category
+  breakdown). The multi-timeframe drill-down lives in the **Calendar
+  Dashboard** instead (see below) — the two are deliberately separate:
+  Routine's analytics is "how is today going", the Calendar Dashboard is
+  "how did I do historically."
 - **Pinch/zoom** on the timeline was not implemented; the daily timeline
   scrolls vertically instead (`#timelineWrap`, max-height with
   `overflow-y:auto`, auto-scrolls to the current time on open).
+
+## Calendar Dashboard
+
+Added after the Routine Scheduler, in the Calendar tab. Replaces the
+original plain "X% consistency" stat cards with a Daily/Weekly/Monthly/
+Yearly reporting view — read-only, no Start/Pause/Complete controls (those
+stay exclusive to Today and the Routine tab). Built on the *same* block
+functions as the Routine tab (`getMandatoryBlocksForDate()` /
+`getCustomBlocksForDate()`), so there is no second data source to keep in
+sync.
+
+- `computeBlockStatus(block, dateStr)` classifies a block as `done` /
+  `in-progress` / `overdue` / `pending` for *any* date, not just today —
+  unlike `isActivityMissed()` (Routine tab), which only ever evaluates
+  today and drives actionable UI (Skip/Reschedule/etc.). A past day that
+  was never completed is `overdue`; a future day is always `pending`,
+  never `overdue`, no matter how empty it is.
+- `bucketForStartTime()` / `BUCKET_ICON` give the Daily view's Morning/
+  Afternoon/Evening/Night grouping — shared with the Routine tab's
+  Overview, which was renamed from Morning/**Day**/Evening/Night to
+  Morning/**Afternoon**/Evening/Night for consistency.
+- **A block can't be "due" before it existed.** `isActivityDueOn()` (custom
+  activities) and `getMandatoryBlocksForDate()` (Japa/Practice) both check
+  the item's `createdAt` against the date being evaluated and skip it if
+  the item didn't exist yet. Without this, creating a new daily activity
+  today would retroactively render as "missed" for every matching weekday
+  going back through the calendar — this was caught by testing (the Yearly
+  view showed a brand-new account as having failed every month of the
+  year), not designed in from the start. Counters/activities that predate
+  this field (no `createdAt`) are treated as always-due, for backward
+  compatibility.
+- **A future period is never colored like a missed one.** The Monthly grid
+  and Yearly grid explicitly null out a day/month's completion percentage
+  if it hasn't happened yet, rather than showing 0% (which would render
+  with the same "missed" color as a genuinely incomplete past day/month).
+  This was also caught by testing, not obvious from the data model alone —
+  don't "simplify" this check away.
+- The existing filter/search/trace controls (`calTypeTabs`/`calSearch`/
+  `calReset`) and the month heatmap grid below the dashboard are unrelated,
+  pre-existing functionality and were deliberately left untouched — they
+  serve "find this specific activity across the month," which the
+  dashboard doesn't replace.
+- Clicking a day (Weekly strip, Monthly grid) or a month (Yearly grid)
+  jumps to a more detailed view (Daily, or Monthly) rather than opening
+  another panel in place — consistent with the Routine tab's weekly→daily
+  jump pattern.
+
+## Reminders (best-effort browser notifications — not real alarms)
+
+Every mandatory practice (Japa/Practice per sandhya, Reading per book,
+Learning per track) and every custom activity can have one daily `HH:MM`
+reminder, settable/removable from wherever that item is already edited
+(the activity panel, a mandatory block's expand panel on the Routine
+timeline, or inline next to each book/learning track). Storage:
+`activity.reminderTime` for custom activities;
+`data.mandatorySchedule.<kind>[<sandhya-or-item-id>].reminderTime` for
+everything mandatory (reusing the same `mandatorySchedule` bucket the
+Routine timeline already uses for display times).
+
+**This is explicitly not a real OS alarm**, and the user was asked and
+chose this over the alternative before it was built: a true
+guaranteed-timing alarm (fires even if the browser has been closed for
+days, with sound/vibration/lock-screen takeover) needs a server that pushes
+notifications on a schedule — Firebase Cloud Functions + Cloud Scheduler +
+FCM, a paid (Blaze plan) addition this app does not have. What's built
+instead:
+
+- `rebuildReminderSchedule()` (called after every successful `save()` and
+  once when a profile is selected) clears all pending timers and, if
+  Notification permission is `granted`, sets a fresh `setTimeout` per
+  reminder via `collectReminders()` for its next occurrence
+  (`msUntilNextOccurrence()`).
+- When a timer fires, `fireReminder()` calls
+  `navigator.serviceWorker.ready.then(reg => reg.showNotification(...))`
+  (falling back to `new Notification(...)` if no service worker), then
+  immediately re-arms itself for +24h via `scheduleReminder()`.
+- Permission is requested lazily, only when the user actually sets their
+  first reminder (`ensureNotificationPermission()`), not on app load.
+- Timers are cleared on switch-user and sign-out (`clearAllReminderTimers()`
+  in the `switchUserBtn` handler and `resetAppState()`) so a previous
+  profile's or account's reminders don't keep firing.
+- **Real-world reliability depends on the browser/OS keeping the page or
+  service worker alive.** It works well on desktop browsers and installed
+  Android PWAs that stay backgrounded. On iOS Safari, web notifications
+  only fire at all once the app has been added to the Home Screen (Apple
+  restriction, not something this app can work around). If a user reports
+  reminders not firing, this is the first thing to check — it is not
+  necessarily a bug.
 
 ## Event contract between auth-ui.js and app.js
 
@@ -243,6 +336,26 @@ browser:
 6. Deleting one of the four mandatory practices is not possible anywhere in
    the UI; their Routine-tab blocks show a "🔒 Core" badge and only expose
    a time/duration editor, never a delete action.
+7. Calendar Dashboard: with at least one mandatory item and one custom
+   activity scheduled, open Calendar → Daily and confirm items appear
+   under the correct Morning/Afternoon/Evening/Night bucket with a Done/
+   Overdue/Pending badge. Switch to Weekly (7 columns, click one jumps to
+   Daily), Monthly (grid colored only for past/today, future days neutral,
+   click a day jumps to Daily), and Yearly (12 months, future months
+   neutral, click one jumps to Monthly). Create a brand-new activity and
+   confirm the Yearly view does *not* show earlier months as missed for
+   it. The old filter/search/reset row and the month heatmap grid below
+   the dashboard should be untouched.
+8. Reminders: set a reminder time on a custom activity, a mandatory Japa/
+   Practice sandhya (via its Routine-tab expand panel), a book, and a
+   learning track. Reopen each editor and confirm the time persisted.
+   Grant notification permission and confirm no console errors — actually
+   waiting for a reminder to fire in real time is impractical to test
+   quickly; trust the persistence check plus a code read of
+   `rebuildReminderSchedule()`/`collectReminders()` instead.
+9. Login screen: with a guru photo set, sign out and back in — the daily
+   quote card on the user-select screen shows the photo as a small square
+   beside the quote text, not as a full-screen background.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

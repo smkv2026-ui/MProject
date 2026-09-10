@@ -2,7 +2,7 @@
 // js/firebase-init.js) handles offline data; this worker only makes the
 // static shell (markup, styles, script, icons) load instantly and work
 // offline, so the app still opens without a network connection.
-const CACHE_VERSION = 'sadhana-v1';
+const CACHE_VERSION = 'sadhana-v2';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -55,6 +55,21 @@ self.addEventListener('fetch', event => {
         return res;
       }).catch(() => cached || caches.match('./index.html'));
       return cached || network;
+    })
+  );
+});
+
+// Reminder notifications (see js/app.js "Reminders") are shown via
+// registration.showNotification(); this focuses an existing app window (or
+// opens one) when the user taps the notification.
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      for (const client of clients) {
+        if ('focus' in client) return client.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow('./index.html');
     })
   );
 });

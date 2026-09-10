@@ -64,14 +64,15 @@
 
 <!-- User select screen -->
 <div class="user-screen" id="userSelectScreen" style="display:none;">
-  <div class="user-quote-bg" id="userQuoteBg"></div>
-  <div class="user-quote-scrim"></div>
   <div class="user-screen-inner">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
     <div class="daily-quote-card" id="dailyQuoteCard">
-      <div class="daily-quote-text" id="dailyQuoteText"></div>
-      <div class="daily-quote-attrib" id="dailyQuoteAttrib"></div>
+      <img class="daily-quote-photo" id="dailyQuotePhoto" style="display:none;" alt="">
+      <div class="daily-quote-body">
+        <div class="daily-quote-text" id="dailyQuoteText"></div>
+        <div class="daily-quote-attrib" id="dailyQuoteAttrib"></div>
+      </div>
     </div>
     <div class="user-grid" id="userGrid"></div>
     <div class="add-user-form" id="addUserForm">
@@ -224,7 +225,7 @@
   </div>
 
   <div id="tab-calendar" style="display:none;">
-    <div class="cal-summary" id="calSummary"></div>
+    <div id="calDashboard"></div>
 
     <div class="cal-controls">
       <div class="cal-tabbar" id="calTypeTabs">
@@ -418,6 +419,16 @@
         </div>
       </div>
       <div class="empty-note" style="margin:-6px 0 12px;">Leave start time blank to keep this as a flexible task for today.</div>
+
+      <div class="field-col" style="margin-bottom:12px;">
+        <label class="field-label">Daily reminder (optional)</label>
+        <div class="reminder-control">
+          <span class="reminder-icon">🔔</span>
+          <input type="time" id="actReminder">
+          <button type="button" class="pill ghost reminder-clear-btn" id="actReminderClear">Clear</button>
+        </div>
+        <div class="empty-note" style="margin-top:4px;">Best-effort browser notification — see Settings for how this works.</div>
+      </div>
 
       <div id="actFrequencyFields" style="display:none;">
         <label class="field-label">Repeat</label>

@@ -297,3 +297,86 @@ practices, without disturbing any existing functionality.
   right days, drag it to a new time, resize its duration, complete it, and
   see all of that reflected consistently in both the Today tab and the
   Routine tab, surviving a page reload.
+
+---
+
+# Addendum B — Calendar Dashboard, Reminders, Login Photo Fix
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-10 |
+
+## B.1 Objective
+
+Three follow-on requests: replace the Calendar tab's plain consistency-%
+summary with a richer Daily/Weekly/Monthly/Yearly reporting dashboard; add
+optional daily reminders to every task (mandatory and custom); and fix the
+login screen's daily-quote guru photo to match the same square-thumbnail
+treatment already applied to Guru's Teachings.
+
+## B.2 Scope delivered
+
+**Calendar Dashboard** (replaces the "X% consistency" stat cards shown in
+the request; the filter/search/reset row and month heatmap grid below are
+unrelated, pre-existing functionality and were left in place):
+- **Daily**: the selected day's mandatory and custom activities, grouped
+  into Morning/Afternoon/Evening/Night (plus Flexible), each row showing
+  its scheduled time, planned vs. actual duration, and a Done/Running/
+  Overdue/Pending status badge.
+- **Weekly**: a 7-day strip with a stacked done/overdue/pending bar per
+  day; clicking a day opens it in Daily.
+- **Monthly**: scheduled/completed/missed/completion-rate totals plus a
+  calendar grid colored by each day's completion rate — future days are
+  left neutral rather than colored as if they'd already failed.
+- **Yearly**: the same totals across a 12-month grid, with the same
+  neutral treatment for months that haven't started yet; clicking a month
+  opens it in Monthly.
+- A new activity or mandatory counter is never retroactively "missed" for
+  days before it was created (see A.3-style note in CLAUDE.md) — caught
+  during testing, not part of the original ask, but necessary for the
+  dashboard's numbers to be trustworthy.
+
+**Reminders** (best-effort browser notifications, not a real alarm — see
+below):
+- Every mandatory item (each Japa/Practice sandhya, each Reading book,
+  each Learning track) and every custom activity can have one optional
+  daily `HH:MM` reminder, set from wherever that item is already edited.
+  Editable and removable at any time, for mandatory and custom tasks
+  alike, per the request.
+- Fires as a real system notification via the service worker, once
+  notification permission is granted (requested only when a reminder is
+  first set), and re-arms itself daily automatically.
+
+**Login screen photo fix**: the daily-quote card on the pre-login
+user-select screen now shows the guru's photo as a small square thumbnail
+beside the quote text, matching the fix already made to the Guru's
+Teachings tab, instead of stretching it across the whole screen as a
+background image.
+
+## B.3 A note on "alarm"
+
+The request asked for an alarm "in mobile." A genuine OS-level alarm —
+guaranteed to fire at an exact time with sound/vibration/lock-screen
+takeover, even if the browser has been fully closed for days — is not
+achievable from a web app without a paid, actively-maintained backend
+(Firebase Cloud Functions + Cloud Scheduler + Firebase Cloud Messaging,
+sending a push per user per reminder on a schedule). This was put to the
+user directly as a choice before building anything: best-effort browser
+notifications (free, ships immediately, reliable while the browser/PWA has
+been used recently on that device) versus the paid scheduled-push backend.
+The user chose the free option. If real alarm-clock reliability becomes a
+hard requirement later, building the scheduled-push backend is the correct
+next step — it was scoped and explained, not silently declined.
+
+## B.4 Success criteria
+
+- The Calendar tab's new dashboard and its four period views load without
+  errors, agree with the Routine tab's block data (no separate data
+  source), and never color a future day/month as if it were already
+  missed.
+- A reminder set on any of the four mandatory task types or a custom
+  activity persists across reopening its editor and across a reload, and
+  can be cleared.
+- The daily-quote card shows a photo (when the guru has one) as a bounded
+  square image, never as a background covering the screen.

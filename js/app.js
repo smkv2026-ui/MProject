@@ -89,7 +89,10 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     if(!currentUser) return;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async ()=>{
-      try{ await cloudSet(userStorageKey(currentUser.id), JSON.stringify(data)); }
+      try{
+        await cloudSet(userStorageKey(currentUser.id), JSON.stringify(data));
+        rebuildReminderSchedule();
+      }
       catch(e){ console.error('save failed', e); }
     }, 250);
   }
@@ -293,20 +296,20 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   function renderDailyQuote(){
     const flat = [];
     gurus.forEach(g=>{ g.teachings.forEach(t=> flat.push({guru:g, teaching:t})); });
-    const screen = document.getElementById('userSelectScreen');
-    if(flat.length===0){ screen.classList.remove('has-quote-bg'); return; }
+    const card = document.getElementById('dailyQuoteCard');
+    if(flat.length===0){ card.style.display='none'; return; }
     const idx = dailySeed(todayStr()) % flat.length;
     const pick = flat[idx];
+    card.style.display = 'flex';
     document.getElementById('dailyQuoteText').textContent = pick.teaching.text;
     document.getElementById('dailyQuoteAttrib').textContent = '— ' + pick.guru.name;
-    const bg = document.getElementById('userQuoteBg');
+    const photo = document.getElementById('dailyQuotePhoto');
     if(pick.guru.image){
-      bg.style.backgroundImage = 'url("'+pick.guru.image+'")';
-      bg.classList.add('show');
-      screen.classList.add('has-quote-bg');
+      photo.src = pick.guru.image;
+      photo.alt = pick.guru.name;
+      photo.style.display = '';
     } else {
-      bg.classList.remove('show');
-      screen.classList.remove('has-quote-bg');
+      photo.style.display = 'none';
     }
   }
 
@@ -380,10 +383,12 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     document.getElementById('tab-calendar').style.display='none';
     selectedDate = null;
     renderAll();
+    rebuildReminderSchedule();
   }
 
   document.getElementById('switchUserBtn').addEventListener('click', ()=>{
     finalizeAllRunning();
+    clearAllReminderTimers();
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -428,6 +433,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     if(unsubUsers){ unsubUsers(); unsubUsers = null; }
     if(unsubGurus){ unsubGurus(); unsubGurus = null; }
     finalizeAllRunning();
+    clearAllReminderTimers();
     users = [];
     gurus = [];
     currentUser = null;
@@ -616,7 +622,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       const counter = data.japa.find(c=>c.id===editId);
       if(counter){ counter.name = name; counter.sandhyas = sandhyas; }
     } else {
-      data.japa.push({id:uid(), name, sandhyas, image:null});
+      data.japa.push({id:uid(), name, sandhyas, image:null, createdAt:Date.now()});
     }
     resetJapaForm();
     document.getElementById('japaForm').classList.remove('open');
@@ -830,7 +836,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       const pr = data.practice.find(p=>p.id===editId);
       if(pr){ pr.name = name; pr.sandhyas = sandhyas; }
     } else {
-      data.practice.push({id:uid(), name, sandhyas});
+      data.practice.push({id:uid(), name, sandhyas, createdAt:Date.now()});
     }
     resetPracticeForm();
     document.getElementById('practiceForm').classList.remove('open');
@@ -915,7 +921,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     entry.log.push({ seconds: elapsed, endedAt: Date.now() });
     entry.seconds += elapsed;
     delete runningTimers[key];
-    save(); renderPractice(); renderCalSummary();
+    save(); renderPractice(); renderCalendarDashboard();
     if(document.getElementById('tab-calendar').style.display !== 'none') renderCalendar();
   }
 
@@ -928,7 +934,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   function refreshActivityViews(){
     renderTodaySchedule();
     if(document.getElementById('tab-routine') && document.getElementById('tab-routine').style.display !== 'none') renderRoutineTab();
-    renderCalSummary();
+    renderCalendarDashboard();
   }
 
   function startActivityTimer(activityId){
@@ -1025,9 +1031,19 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
           <input type="number" min="0" placeholder="pages today" data-book="${book.id}" value="${todayVal||''}">
           <button class="pill" data-log-book="${book.id}">Log</button>
         </div>
+        <div class="reminder-control" style="margin-top:8px;">
+          <span class="reminder-icon">🔔</span>
+          <input type="time" data-reminder-reading="${book.id}" value="${getItemReminderTime('reading', book.id)}" title="Daily reading reminder">
+        </div>
       </div>`;
     }).join('') + '</div>';
 
+    el.querySelectorAll('[data-reminder-reading]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        setItemReminderTime('reading', inp.dataset.reminderReading, inp.value);
+        if(inp.value) ensureNotificationPermission();
+      });
+    });
     el.querySelectorAll('[data-log-book]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const bookId = btn.dataset.logBook;
@@ -1082,10 +1098,20 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
           <span class="item-sub">${doneCount}/${track.milestones.length} milestones</span>
         </div>
         <button class="expand-toggle" data-toggle-expand="${track.id}">${track.expanded?'hide details':'show details'}</button>
+        <div class="reminder-control" style="margin-top:8px;">
+          <span class="reminder-icon">🔔</span>
+          <input type="time" data-reminder-learning="${track.id}" value="${getItemReminderTime('learning', track.id)}" title="Daily learning reminder">
+        </div>
         ${body}
       </div>`;
     }).join('') + '</div>';
 
+    el.querySelectorAll('[data-reminder-learning]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        setItemReminderTime('learning', inp.dataset.reminderLearning, inp.value);
+        if(inp.value) ensureNotificationPermission();
+      });
+    });
     el.querySelectorAll('[data-toggle-expand]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const track = data.learning.find(t=>t.id===btn.dataset.toggleExpand);
@@ -1181,6 +1207,130 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     ]}
   ];
 
+  /* ======================================================================
+     Reminders — best-effort browser notifications, not a real OS alarm.
+     A reminder is a daily HH:MM stored on the item itself (activities) or
+     in mandatorySchedule (Japa/Practice per sandhya, Reading per book,
+     Learning per track). This schedules a plain setTimeout to the next
+     occurrence and calls the service worker's showNotification() when it
+     fires, then re-arms itself for the following day. This only fires
+     while the browser/PWA process for this device is running (or has run
+     recently, depending on the OS/browser) — it cannot wake a fully closed
+     browser at an exact time. On iOS this only works at all once the app
+     has been added to the Home Screen (Apple restricts background web
+     notifications otherwise). See CLAUDE.md/BRD.md for why a true
+     guaranteed-timing alarm was not built (it needs a paid scheduled-push
+     backend: Firebase Cloud Functions + Cloud Scheduler + FCM).
+     ====================================================================== */
+  let reminderTimers = {};
+
+  async function ensureNotificationPermission(){
+    if(!('Notification' in window)) return false;
+    if(Notification.permission === 'granted') return true;
+    if(Notification.permission === 'denied') return false;
+    try{ return (await Notification.requestPermission()) === 'granted'; }
+    catch(e){ return false; }
+  }
+
+  function clearAllReminderTimers(){
+    Object.values(reminderTimers).forEach(h=>clearTimeout(h));
+    reminderTimers = {};
+  }
+
+  function collectReminders(){
+    const list = [];
+    data.japa.forEach(item=>{
+      (item.sandhyas||[]).forEach(sandhya=>{
+        if(sandhya==='any') return;
+        const rec = data.mandatorySchedule.japa[sandhya];
+        if(rec && rec.reminderTime) list.push({ id:'japa:'+item.id+':'+sandhya, time:rec.reminderTime, title:'Japa reminder', body:item.name+' · '+SANDHYA_LABEL[sandhya] });
+      });
+    });
+    data.practice.forEach(item=>{
+      (item.sandhyas||[]).forEach(sandhya=>{
+        if(sandhya==='any') return;
+        const rec = data.mandatorySchedule.practice[sandhya];
+        if(rec && rec.reminderTime) list.push({ id:'practice:'+item.id+':'+sandhya, time:rec.reminderTime, title:'Practice reminder', body:item.name+' · '+SANDHYA_LABEL[sandhya] });
+      });
+    });
+    data.books.forEach(book=>{
+      const rec = data.mandatorySchedule.reading[book.id];
+      if(rec && rec.reminderTime) list.push({ id:'reading:'+book.id, time:rec.reminderTime, title:'Reading reminder', body:book.title });
+    });
+    data.learning.forEach(track=>{
+      const rec = data.mandatorySchedule.learning[track.id];
+      if(rec && rec.reminderTime) list.push({ id:'learning:'+track.id, time:rec.reminderTime, title:'Learning reminder', body:track.title });
+    });
+    data.activities.forEach(a=>{
+      if(a.reminderTime) list.push({ id:'activity:'+a.id, time:a.reminderTime, title:'Sadhana reminder', body:a.name });
+    });
+    return list;
+  }
+
+  function msUntilNextOccurrence(timeStr){
+    const parts = timeStr.split(':');
+    const h = +parts[0], m = +parts[1];
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    if(next <= now) next.setDate(next.getDate()+1);
+    return next.getTime() - now.getTime();
+  }
+
+  async function fireReminder(rem){
+    try{
+      if('serviceWorker' in navigator){
+        const reg = await navigator.serviceWorker.ready;
+        if(reg && reg.showNotification){
+          await reg.showNotification(rem.title, { body: rem.body, icon:'icons/icon-192.png', badge:'icons/icon-192.png', tag: rem.id });
+          return;
+        }
+      }
+      if('Notification' in window && Notification.permission==='granted') new Notification(rem.title, { body: rem.body, icon:'icons/icon-192.png' });
+    }catch(e){ console.error('reminder notification failed', e); }
+  }
+
+  function scheduleReminder(rem){
+    // setTimeout delays beyond ~24.8 days overflow to fire immediately in
+    // some engines; a daily reminder's delay is always <24h so this is
+    // safe, but re-arming recomputes fresh each time regardless.
+    reminderTimers[rem.id] = setTimeout(()=>{
+      fireReminder(rem);
+      scheduleReminder(rem);
+    }, msUntilNextOccurrence(rem.time));
+  }
+
+  function rebuildReminderSchedule(){
+    clearAllReminderTimers();
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    collectReminders().forEach(scheduleReminder);
+  }
+
+  // Reading/Learning have no sandhya concept, so their reminders live
+  // directly under mandatorySchedule.reading[bookId] /
+  // mandatorySchedule.learning[trackId] rather than through
+  // getMandatoryTimeInfo (which is sandhya-shaped, for Japa/Practice).
+  function getItemReminderTime(scheduleKey, itemId){
+    const bucket = data.mandatorySchedule[scheduleKey];
+    return (bucket && bucket[itemId] && bucket[itemId].reminderTime) || '';
+  }
+  function setItemReminderTime(scheduleKey, itemId, time){
+    if(!data.mandatorySchedule[scheduleKey]) data.mandatorySchedule[scheduleKey] = {};
+    const bucket = data.mandatorySchedule[scheduleKey];
+    if(!bucket[itemId]) bucket[itemId] = {};
+    bucket[itemId].reminderTime = time || '';
+    save();
+  }
+
+  // Shared markup for a reminder control, reused wherever a reminder can be
+  // set: the activity panel, the mandatory block expand panel, Reading book
+  // rows, and Learning track headers.
+  function reminderControlHtml(idAttr, currentTime){
+    return `<span class="reminder-control">
+      <span class="reminder-icon">🔔</span>
+      <input type="time" class="reminder-time-input" id="${idAttr}" value="${currentTime||''}" title="Daily reminder time">
+    </span>`;
+  }
+
   function categoryMeta(key){ return ACTIVITY_CATEGORIES.find(c=>c.key===key) || ACTIVITY_CATEGORIES[ACTIVITY_CATEGORIES.length-1]; }
   function categoryColor(key){ return categoryMeta(key).color; }
   function categoryLabel(key){ return categoryMeta(key).label; }
@@ -1204,6 +1354,11 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   }
 
   function isActivityDueOn(activity, dateStr){
+    // An activity can't have been "due" (and therefore can't be "missed")
+    // on a date before it was created — without this, creating a new daily
+    // activity today would retroactively mark it overdue for every past
+    // matching day, inflating missed counts in the Calendar Dashboard.
+    if(activity.createdAt && dateStr < todayStr(new Date(activity.createdAt))) return false;
     const sch = activity.schedule || {};
     const freq = sch.frequency || 'daily';
     const dow = new Date(dateStr+'T00:00:00').getDay();
@@ -1465,6 +1620,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     document.getElementById('actPriority').value = 'medium';
     document.getElementById('actStartTime').value = '';
     document.getElementById('actDuration').value = '30';
+    document.getElementById('actReminder').value = '';
     document.querySelectorAll('input[name="actFreq"]').forEach(r=> r.checked = (r.value==='daily'));
     document.querySelectorAll('#actDayPicker input').forEach(cb=>cb.checked=false);
     document.getElementById('actDayPicker').style.display = 'none';
@@ -1498,6 +1654,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     document.getElementById('actPriority').value = a.priority||'medium';
     document.getElementById('actStartTime').value = (a.schedule&&a.schedule.startTime)||'';
     document.getElementById('actDuration').value = a.durationMin||30;
+    document.getElementById('actReminder').value = a.reminderTime||'';
     const freq = (a.schedule&&a.schedule.frequency)||'daily';
     document.querySelectorAll('input[name="actFreq"]').forEach(r=> r.checked = (r.value===freq));
     document.getElementById('actDayPicker').style.display = (freq==='custom') ? '' : 'none';
@@ -1528,6 +1685,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   document.getElementById('activityPanelClose').addEventListener('click', closeActivityPanel);
   document.getElementById('actCancel').addEventListener('click', closeActivityPanel);
   document.getElementById('addActivityFab').addEventListener('click', ()=> openAddActivityPanel());
+  document.getElementById('actReminderClear').addEventListener('click', ()=>{ document.getElementById('actReminder').value = ''; });
 
   document.getElementById('actDelete').addEventListener('click', ()=>{
     const id = document.getElementById('actEditId').value;
@@ -1550,10 +1708,13 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     const editId = document.getElementById('actEditId').value;
     const existing = editId ? data.activities.find(a=>a.id===editId) : null;
 
+    const reminderTime = document.getElementById('actReminder').value || null;
+
     if(existing && existing.locked){
       const startTimeRaw = document.getElementById('actStartTime').value;
       const duration = Math.max(5, parseInt(document.getElementById('actDuration').value,10) || existing.durationMin || 30);
-      updateActivity(editId, { durationMin: duration, schedule: { startTime: startTimeRaw || null } });
+      updateActivity(editId, { durationMin: duration, reminderTime, schedule: { startTime: startTimeRaw || null } });
+      if(reminderTime) ensureNotificationPermission();
       closeActivityPanel();
       refreshActivityViews();
       return;
@@ -1575,6 +1736,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       priority: document.getElementById('actPriority').value || 'medium',
       color: selectedColor,
       durationMin: duration,
+      reminderTime,
       schedule: { startTime: startTimeRaw || null, endTime:null, frequency: freq, days }
     };
     if(editId){
@@ -1582,6 +1744,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     } else {
       createActivity(fields);
     }
+    if(reminderTime) ensureNotificationPermission();
     closeActivityPanel();
     refreshActivityViews();
   });
@@ -1618,7 +1781,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
 
   function getMandatoryTimeInfo(kind, sandhya){
     const rec = data.mandatorySchedule[kind] && data.mandatorySchedule[kind][sandhya];
-    return { time: (rec && rec.time) || DEFAULT_SANDHYA_TIME[sandhya], durationMin: (rec && rec.durationMin) || 30 };
+    return { time: (rec && rec.time) || DEFAULT_SANDHYA_TIME[sandhya], durationMin: (rec && rec.durationMin) || 30, reminderTime: (rec && rec.reminderTime) || '' };
   }
   function setMandatoryTimeInfo(kind, sandhya, patch){
     if(!data.mandatorySchedule[kind]) data.mandatorySchedule[kind] = {};
@@ -1631,6 +1794,11 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     const day = data.logs[dateStr];
     [['japa', data.japa], ['practice', data.practice]].forEach(([kind, list])=>{
       list.forEach(item=>{
+        // Same reasoning as isActivityDueOn(): a counter can't have been
+        // due before it existed, or the dashboard would show it as missed
+        // for every past day retroactively. Counters from before this
+        // field existed have no createdAt and are treated as always due.
+        if(item.createdAt && dateStr < todayStr(new Date(item.createdAt))) return;
         (item.sandhyas||[]).forEach(sandhya=>{
           if(sandhya==='any') return; // no time-of-day concept for sandhya-not-applicable items
           const info = getMandatoryTimeInfo(kind, sandhya);
@@ -1645,7 +1813,8 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
             startTime: info.time,
             durationMin: Math.max(15, seconds>0 ? Math.round(seconds/60) : info.durationMin),
             locked:true, running: !!runningTimers[runningKey], seconds,
-            done: seconds>0 && !runningTimers[runningKey]
+            done: seconds>0 && !runningTimers[runningKey],
+            reminderTime: info.reminderTime
           });
         });
       });
@@ -1759,6 +1928,37 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       return (schedule.days||[]).slice().sort().map(d=>names[d]).join(', ') || 'Custom (no days selected)';
     }
     return 'Every day';
+  }
+
+  // Shared Morning/Afternoon/Evening/Night bucketing, used by the Routine
+  // Overview and the Calendar Dashboard so both group activities the same
+  // way. A block with no fixed time falls into 'Flexible' rather than
+  // being guessed into a time bucket.
+  function bucketForStartTime(startTime){
+    if(startTime==null) return 'Flexible';
+    const m = timeToMin(startTime);
+    if(m < 12*60) return 'Morning';
+    if(m < 17*60) return 'Afternoon';
+    if(m < 21*60) return 'Evening';
+    return 'Night';
+  }
+  const BUCKET_ICON = { Morning:'🌅', Afternoon:'☀️', Evening:'🌆', Night:'🌙', Flexible:'✦' };
+
+  // Classifies a block's status on a given date — used for read-only
+  // reporting (Calendar Dashboard). This is deliberately separate from
+  // isActivityMissed(), which drives *actionable* missed-activity UI and
+  // only ever applies to today; a dashboard looking at a past date needs
+  // "overdue" (never completed, day is over) without offering Start/Skip
+  // buttons for a day that's already gone.
+  function computeBlockStatus(block, dateStr){
+    if(block.done) return 'done';
+    if(block.running) return 'in-progress';
+    const today = todayStr();
+    if(dateStr > today) return 'pending';
+    if(dateStr < today) return block.startTime!=null || block.kind==='mandatory' ? 'overdue' : 'pending';
+    if(block.startTime==null) return 'pending';
+    const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+    return nowMin > (timeToMin(block.startTime)+block.durationMin) ? 'overdue' : 'pending';
   }
 
   function ensureRoutineTabDom(){
@@ -2087,7 +2287,8 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
         <div class="mandatory-edit-row">
           <input type="time" class="mini-time-input" id="mtEditTime" value="${block.startTime}">
           <input type="number" class="mini-dur-input" id="mtEditDuration" min="5" step="5" value="${block.durationMin}">
-          <button class="pill ghost" data-block-act="save-mandatory-time">Save time</button>
+          <span class="reminder-control"><span class="reminder-icon">🔔</span><input type="time" class="mini-time-input" id="mtEditReminder" value="${block.reminderTime||''}" title="Daily reminder"></span>
+          <button class="pill ghost" data-block-act="save-mandatory-time">Save</button>
         </div>
         <span class="lock-badge">🔒 Core Practice — always available, cannot be deleted</span>`;
     } else {
@@ -2134,7 +2335,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       if(act==='save-mandatory-time'){
         const time = document.getElementById('mtEditTime').value || block.startTime;
         const dur = Math.max(5, parseInt(document.getElementById('mtEditDuration').value,10) || block.durationMin);
-        setMandatoryTimeInfo(block.subtype, block.sandhya, {time, durationMin:dur});
+        const reminderTime = document.getElementById('mtEditReminder').value || '';
+        setMandatoryTimeInfo(block.subtype, block.sandhya, {time, durationMin:dur, reminderTime});
+        if(reminderTime) ensureNotificationPermission();
         closeAndRefresh();
       }
       return;
@@ -2249,15 +2452,9 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     const el = document.getElementById('overviewGroups');
     const dateStr = routineDateForOffset(routineDayOffset);
     const blocks = getAllBlocksForDate(dateStr).filter(b=>b.startTime).sort((a,b)=>timeToMin(a.startTime)-timeToMin(b.startTime));
-    const buckets = { Morning:[], Day:[], Evening:[], Night:[] };
-    blocks.forEach(b=>{
-      const m = timeToMin(b.startTime);
-      if(m < 12*60) buckets.Morning.push(b);
-      else if(m < 17*60) buckets.Day.push(b);
-      else if(m < 21*60) buckets.Evening.push(b);
-      else buckets.Night.push(b);
-    });
-    const order = ['Morning','Day','Evening','Night'];
+    const buckets = { Morning:[], Afternoon:[], Evening:[], Night:[] };
+    blocks.forEach(b=> buckets[bucketForStartTime(b.startTime)].push(b));
+    const order = ['Morning','Afternoon','Evening','Night'];
     el.innerHTML = order.map((name,i)=>`
       <div class="overview-group">
         <div class="overview-group-title">${name}</div>
@@ -2454,12 +2651,234 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     return {active, lastDay, pct: lastDay>0 ? Math.round((active/lastDay)*100) : 0};
   }
 
-  function renderCalSummary(){
-    const el = document.getElementById('calSummary');
-    const types = [['any','Overall'],['japa','Japa'],['practice','Practice'],['reading','Reading']];
-    el.innerHTML = types.map(([type,label])=>`
-      <div class="stat"><div class="num">${computeConsistency(type).pct}%</div><div class="lbl">${label} consistency</div></div>
-    `).join('');
+  /* ---------- Calendar Dashboard: Daily/Weekly/Monthly/Yearly ----------
+     Read-only reporting view built on the same block model as the Routine
+     tab (getMandatoryBlocksForDate/getCustomBlocksForDate) — no separate
+     data source. Replaces the old plain consistency-% stat cards; the
+     month heatmap grid, search/filter/trace controls and day panel below
+     are unrelated existing functionality and are left exactly as they
+     were. */
+  let calDashPeriod = 'daily';
+  let calDashDate = null; // explicit focus date; falls back to selectedDate, then today
+
+  function currentCalDashDate(){ return calDashDate || selectedDate || todayStr(); }
+  function shiftCalDashDate(days){
+    const d = new Date(currentCalDashDate()+'T00:00:00');
+    d.setDate(d.getDate()+days);
+    calDashDate = todayStr(d);
+  }
+
+  function ensureCalDashboardDom(){
+    const root = document.getElementById('calDashboard');
+    if(!root || root.dataset.built) return;
+    root.dataset.built = '1';
+    root.innerHTML = `
+      <div class="cal-dash">
+        <div class="cal-tabbar" id="calDashPeriodTabs">
+          <button class="cal-tab on" data-period="daily">Daily</button>
+          <button class="cal-tab" data-period="weekly">Weekly</button>
+          <button class="cal-tab" data-period="monthly">Monthly</button>
+          <button class="cal-tab" data-period="yearly">Yearly</button>
+        </div>
+
+        <div id="calDashDaily">
+          <div class="cal-nav">
+            <button id="calDashDayPrev">‹</button>
+            <h3 id="calDashDayLabel"></h3>
+            <button id="calDashDayNext">›</button>
+          </div>
+          <div id="calDashDailyBody"></div>
+        </div>
+
+        <div id="calDashWeekly" style="display:none;">
+          <div class="dash-week-row" id="calDashWeeklyBody"></div>
+        </div>
+
+        <div id="calDashMonthly" style="display:none;">
+          <div class="routine-stats-row" id="calDashMonthlyStats"></div>
+          <div class="dash-month-grid" id="calDashMonthlyGrid"></div>
+        </div>
+
+        <div id="calDashYearly" style="display:none;">
+          <div class="routine-stats-row" id="calDashYearlyStats"></div>
+          <div class="dash-year-grid" id="calDashYearlyGrid"></div>
+        </div>
+      </div>
+    `;
+    document.querySelectorAll('#calDashPeriodTabs .cal-tab').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ calDashPeriod = btn.dataset.period; renderCalendarDashboard(); });
+    });
+    document.getElementById('calDashDayPrev').addEventListener('click', ()=>{ shiftCalDashDate(-1); renderCalendarDashboard(); });
+    document.getElementById('calDashDayNext').addEventListener('click', ()=>{ shiftCalDashDate(1); renderCalendarDashboard(); });
+  }
+
+  function renderCalendarDashboard(){
+    ensureCalDashboardDom();
+    if(!document.getElementById('calDashboard')) return;
+    document.querySelectorAll('#calDashPeriodTabs .cal-tab').forEach(b=> b.classList.toggle('on', b.dataset.period===calDashPeriod));
+    document.getElementById('calDashDaily').style.display = calDashPeriod==='daily' ? '' : 'none';
+    document.getElementById('calDashWeekly').style.display = calDashPeriod==='weekly' ? '' : 'none';
+    document.getElementById('calDashMonthly').style.display = calDashPeriod==='monthly' ? '' : 'none';
+    document.getElementById('calDashYearly').style.display = calDashPeriod==='yearly' ? '' : 'none';
+    if(calDashPeriod==='daily') renderCalDashDaily();
+    if(calDashPeriod==='weekly') renderCalDashWeekly();
+    if(calDashPeriod==='monthly') renderCalDashMonthly();
+    if(calDashPeriod==='yearly') renderCalDashYearly();
+  }
+
+  function renderDashActivityRow(b){
+    const statusMeta = {
+      done:{label:'Done', cls:'status-done'},
+      'in-progress':{label:'Running', cls:'status-running'},
+      overdue:{label:'Overdue', cls:'status-overdue'},
+      pending:{label:'Pending', cls:'status-pending'}
+    }[b._status];
+    const end = b.startTime!=null ? minToTime(timeToMin(b.startTime)+b.durationMin) : null;
+    const timeLabel = b.startTime!=null ? fmtTimeLabel(b.startTime)+(end?' – '+fmtTimeLabel(end):'') : 'No fixed time';
+    const durationBits = [];
+    if(b.seconds>0) durationBits.push(fmtShort(b.seconds)+' actual');
+    if(b.durationMin) durationBits.push(fmtShort(b.durationMin*60)+' planned');
+    return `<div class="dash-row">
+      <span class="dash-row-icon">${b.icon}</span>
+      <span class="dash-row-name">${escapeHtml(b.name)}${b.locked?' <span class="mini-lock">🔒</span>':''}</span>
+      <span class="dash-row-time">${timeLabel}</span>
+      <span class="dash-row-duration">${durationBits.join(' / ')||'—'}</span>
+      <span class="dash-status-pill ${statusMeta.cls}">${statusMeta.label}</span>
+    </div>`;
+  }
+
+  function renderCalDashDaily(){
+    const dateStr = currentCalDashDate();
+    const label = dateStr===todayStr() ? 'Today' : new Date(dateStr+'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'short', day:'numeric', year:'numeric'});
+    document.getElementById('calDashDayLabel').textContent = label;
+    const blocks = [...getMandatoryBlocksForDate(dateStr), ...getCustomBlocksForDate(dateStr)];
+    const buckets = { Morning:[], Afternoon:[], Evening:[], Night:[], Flexible:[] };
+    blocks.forEach(b=>{ b._status = computeBlockStatus(b, dateStr); buckets[bucketForStartTime(b.startTime)].push(b); });
+    const order = ['Morning','Afternoon','Evening','Night','Flexible'];
+    const nonEmpty = order.filter(k=>buckets[k].length);
+    const el = document.getElementById('calDashDailyBody');
+    if(nonEmpty.length===0){ el.innerHTML = '<div class="empty-note">Nothing scheduled for this day.</div>'; return; }
+    el.innerHTML = nonEmpty.map(k=>`
+      <div class="dash-bucket">
+        <div class="dash-bucket-title">${BUCKET_ICON[k]} ${k}</div>
+        <div class="dash-bucket-list">
+          ${buckets[k].sort((a,b)=>(a.startTime!=null?timeToMin(a.startTime):9999)-(b.startTime!=null?timeToMin(b.startTime):9999)).map(renderDashActivityRow).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  function renderCalDashWeekly(){
+    const anchor = new Date(currentCalDashDate()+'T00:00:00');
+    const base = new Date(anchor); base.setDate(anchor.getDate()-anchor.getDay());
+    const dayLabels=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    let html = '';
+    for(let i=0;i<7;i++){
+      const d = new Date(base); d.setDate(base.getDate()+i);
+      const dateStr = todayStr(d);
+      const blocks = [...getMandatoryBlocksForDate(dateStr), ...getCustomBlocksForDate(dateStr)];
+      let done=0, overdue=0, pending=0;
+      blocks.forEach(b=>{
+        const s = computeBlockStatus(b, dateStr);
+        if(s==='done') done++; else if(s==='overdue') overdue++; else pending++;
+      });
+      const total = blocks.length;
+      html += `<div class="dash-week-col ${dateStr===todayStr()?'today':''}" data-date="${dateStr}">
+        <div class="dash-week-head">${dayLabels[i]}<br><span class="dash-week-date">${d.getDate()}</span></div>
+        <div class="dash-week-bar">${total ? `
+          <i class="bar-seg bar-done" style="height:${done/total*100}%"></i>
+          <i class="bar-seg bar-overdue" style="height:${overdue/total*100}%"></i>
+          <i class="bar-seg bar-pending" style="height:${pending/total*100}%"></i>` : ''}</div>
+        <div class="dash-week-counts">${total ? done+'/'+total : '—'}</div>
+      </div>`;
+    }
+    const el = document.getElementById('calDashWeeklyBody');
+    el.innerHTML = html;
+    el.querySelectorAll('.dash-week-col').forEach(col=>{
+      col.addEventListener('click', ()=>{ calDashDate = col.dataset.date; calDashPeriod = 'daily'; renderCalendarDashboard(); });
+    });
+  }
+
+  function renderCalDashMonthly(){
+    if(calYear===undefined) initCalendarCursor();
+    const year = calYear, month = calMonth;
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    let totalScheduled=0, totalDone=0, totalOverdue=0;
+    const cells = [];
+    for(let d=1; d<=daysInMonth; d++){
+      const dateStr = year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      const blocks = [...getMandatoryBlocksForDate(dateStr), ...getCustomBlocksForDate(dateStr)];
+      let done=0, overdue=0;
+      blocks.forEach(b=>{ const s=computeBlockStatus(b,dateStr); if(s==='done') done++; else if(s==='overdue') overdue++; });
+      totalScheduled += blocks.length; totalDone += done; totalOverdue += overdue;
+      // Only a past or current day can be colored by completion — a future
+      // day showing 0% would look identical to a genuinely missed day.
+      const isFuture = dateStr > todayStr();
+      cells.push({ d, dateStr, total: blocks.length, done, pct: (!isFuture && blocks.length) ? Math.round(done/blocks.length*100) : null });
+    }
+    const completionRate = totalScheduled ? Math.round(totalDone/totalScheduled*100) : 0;
+    document.getElementById('calDashMonthlyStats').innerHTML = `
+      <div class="routine-stat"><div class="num">${totalScheduled}</div><div class="lbl">Scheduled</div></div>
+      <div class="routine-stat"><div class="num">${totalDone}</div><div class="lbl">Completed</div></div>
+      <div class="routine-stat"><div class="num">${totalOverdue}</div><div class="lbl">Missed</div></div>
+      <div class="routine-stat"><div class="num">${completionRate}%</div><div class="lbl">Completion</div></div>
+    `;
+    const firstDow = new Date(year, month, 1).getDay();
+    let gridHtml = ['S','M','T','W','T','F','S'].map(d=>`<div class="dash-month-dow">${d}</div>`).join('');
+    for(let i=0;i<firstDow;i++) gridHtml += '<div class="dash-month-cell empty"></div>';
+    cells.forEach(c=>{
+      const level = c.pct==null ? 'none' : c.pct>=80 ? 'high' : c.pct>=40 ? 'mid' : 'low';
+      const title = !c.total ? 'Nothing scheduled' : (c.pct==null ? c.total+' planned' : c.done+'/'+c.total+' completed');
+      gridHtml += `<div class="dash-month-cell level-${level}${c.dateStr===todayStr()?' today':''}" data-date="${c.dateStr}" title="${title}">${c.d}</div>`;
+    });
+    const gridEl = document.getElementById('calDashMonthlyGrid');
+    gridEl.innerHTML = gridHtml;
+    gridEl.querySelectorAll('.dash-month-cell[data-date]').forEach(cell=>{
+      cell.addEventListener('click', ()=>{ calDashDate = cell.dataset.date; calDashPeriod = 'daily'; renderCalendarDashboard(); });
+    });
+  }
+
+  function renderCalDashYearly(){
+    if(calYear===undefined) initCalendarCursor();
+    const year = calYear;
+    const monthNames=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let totalScheduled=0, totalDone=0;
+    const cells = [];
+    for(let m=0;m<12;m++){
+      const daysInMonth = new Date(year, m+1, 0).getDate();
+      let scheduled=0, done=0;
+      for(let d=1; d<=daysInMonth; d++){
+        const dateStr = year+'-'+String(m+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+        const blocks = [...getMandatoryBlocksForDate(dateStr), ...getCustomBlocksForDate(dateStr)];
+        scheduled += blocks.length;
+        blocks.forEach(b=>{ if(computeBlockStatus(b,dateStr)==='done') done++; });
+      }
+      totalScheduled += scheduled; totalDone += done;
+      // A month that hasn't started yet shouldn't be colored as "missed".
+      const now = new Date();
+      const isFutureMonth = year > now.getFullYear() || (year===now.getFullYear() && m > now.getMonth());
+      cells.push({ m, pct: (!isFutureMonth && scheduled) ? Math.round(done/scheduled*100) : null });
+    }
+    const completionRate = totalScheduled ? Math.round(totalDone/totalScheduled*100) : 0;
+    document.getElementById('calDashYearlyStats').innerHTML = `
+      <div class="routine-stat"><div class="num">${totalScheduled}</div><div class="lbl">Scheduled</div></div>
+      <div class="routine-stat"><div class="num">${totalDone}</div><div class="lbl">Completed</div></div>
+      <div class="routine-stat"><div class="num">${completionRate}%</div><div class="lbl">Completion</div></div>
+    `;
+    document.getElementById('calDashYearlyGrid').innerHTML = cells.map(c=>{
+      const level = c.pct==null ? 'none' : c.pct>=80 ? 'high' : c.pct>=40 ? 'mid' : 'low';
+      return `<div class="dash-year-cell level-${level}" data-month="${c.m}">
+        <div class="dash-year-month">${monthNames[c.m]}</div>
+        <div class="dash-year-pct">${c.pct==null?'—':c.pct+'%'}</div>
+      </div>`;
+    }).join('');
+    document.querySelectorAll('#calDashYearlyGrid .dash-year-cell').forEach(cell=>{
+      cell.addEventListener('click', ()=>{
+        calMonth = +cell.dataset.month;
+        calDashPeriod = 'monthly';
+        renderCalendarDashboard();
+        renderCalendar();
+      });
+    });
   }
 
   function renderCalProgress(){
@@ -2472,7 +2891,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
   let selectedDate = null;
   function renderCalendar(){
     if(calYear===undefined) initCalendarCursor();
-    renderCalSummary();
+    renderCalendarDashboard();
     renderCalProgress();
     const label = new Date(calYear,calMonth,1).toLocaleString('en-US',{month:'long',year:'numeric'});
     document.getElementById('calMonthLabel').textContent = label;
