@@ -406,77 +406,81 @@ new signup that hasn't joined anyone's workspace.
 
 ## Admin module
 
-A password-gated dashboard that lists every account ever created on the app
-and, per account, every profile in its workspace with that profile's full
-tracker data — Journal entries included. This was built at the user's
-explicit request, including an explicit choice between two possible security
-models (see below) — it is not a "hidden" feature and its trade-offs are
-deliberate, not an oversight.
+A dashboard that lists every account ever created on the app and, per
+account, every profile in its workspace with that profile's full tracker
+data — Journal entries included. There is **no separate Admin UI element
+anywhere** — no button, no icon, no extra screen to discover. Signing in on
+the ordinary sign-in form (`#loginForm`) with username **`admin`** and
+password **`SriGuruBabaJi`** opens it instead of a normal account. This was
+built at the user's explicit request (an earlier version had a top-right
+button + password modal; the user asked for it to be removed in favor of
+this — go through the normal login form, nothing else) — it is not a
+"hidden" feature and its trade-offs are deliberate, not an oversight.
 
-- **One entry point, fixed to the actual viewport corner.** `#adminBtn` is a
-  single `<button>` placed directly under `<body>`, before all three screens
-  (auth / user-select / app), styled `position:fixed; top:14px; right:14px`
-  (`.admin-fixed-btn` in css/styles.css) — so it's always the literal
-  top-right of whatever the user is looking at, regardless of which screen
-  is showing. The first version of this placed a separate button inside
-  each of the three screens using `position:absolute`, which depended on
-  each screen's own layout/flex context and rendered inconsistently (one
-  report: it appeared inline next to the login form instead of in the
-  corner). Don't go back to per-screen buttons — one fixed element avoids
-  that whole class of layout bug.
-
-- **The password cannot be a real Firestore-enforced gate.** `ADMIN_PASSWORD`
-  (`'SriGuruBabaJi'`, in `js/app.js`) is checked entirely client-side —
-  Firestore security rules have no way to see what was typed into a page's
-  UI. For the Admin view to actually be able to load every account's data,
-  `firestore.rules` had to grant `read` on every `users/{uid}` doc and every
-  `workspaces/{code}/kv/{key}` doc to **any signed-in user**, not just
-  workspace members or whoever knows the password. Concretely: any account
-  that signs up for this app can, via direct Firestore SDK calls (bypassing
-  the UI and the password entirely), read every other household's profile
-  names, tracker logs, and Journal entries. `write` stays restricted to a
-  user's own `users` doc and their own workspace's `kv` — a signed-in
-  stranger can read but never modify another household's data. This was put
-  to the user directly as a choice (open-to-any-signed-in-account vs.
-  restricting real access to specific admin email(s) via Firestore rules)
-  and the simpler, broader-access option was chosen explicitly. If stronger
-  isolation is ever needed, the fix is to replace the blanket `read: if
-  request.auth != null` rules with an email allowlist check
-  (`request.auth.token.email in [...]`) — this was scoped and explained at
-  the time, not silently deferred.
-- **Password alone is enough — no prior account needed, on request.**
-  `attemptAdminLogin()` calls `signInAnonymously(auth)` the moment the
-  password matches, if nobody is already signed in, then opens the
-  dashboard — the user explicitly asked for "type password, press enter,
-  see everything," not "sign in first, then enter the password." This
-  widens the trade-off above one step further: since request.auth != null
-  is the *only* bar Firestore's rules check, and anonymous sign-in requires
-  no email/password/signup at all, **any visitor who loads the site — with
-  no account, ever — can reach the same full cross-account read access**,
-  either through the password prompt or by opening the browser console and
-  calling `signInAnonymously()` themselves. This was raised with the user
-  directly as a further widening beyond the already-approved
+- **It's a credential check inside the normal login handler, not a separate
+  flow.** `js/auth-ui.js`'s `loginForm` submit handler checks
+  `email.toLowerCase() === 'admin' && password === 'SriGuruBabaJi'` *before*
+  calling `signInWithEmailAndPassword` — if it matches, that call never
+  happens at all; anything else falls through to the normal sign-in path
+  unchanged. `#loginEmail` is `type="text"`, not `type="email"` — a plain
+  `type="email"` input's built-in browser validation rejects a bare value
+  like `admin` (no `@`) and silently blocks the form from ever submitting,
+  which would make this impossible to trigger at all. Don't change it back
+  to `type="email"` without solving that.
+- **The credential check cannot be a real Firestore-enforced gate.** It's
+  plain client-side JavaScript — Firestore security rules have no way to
+  see what was typed into a page's form. For the Admin view to actually be
+  able to load every account's data, `firestore.rules` had to grant `read`
+  on every `users/{uid}` doc and every `workspaces/{code}/kv/{key}` doc to
+  **any signed-in user**, not just workspace members or whoever knows the
+  credentials. Concretely: any account that signs up for this app can, via
+  direct Firestore SDK calls (bypassing the UI and the credential check
+  entirely), read every other household's profile names, tracker logs, and
+  Journal entries. `write` stays restricted to a user's own `users` doc and
+  their own workspace's `kv` — a signed-in stranger can read but never
+  modify another household's data. This was put to the user directly as a
+  choice (open-to-any-signed-in-account vs. restricting real access to
+  specific admin email(s) via Firestore rules), and the simpler,
+  broader-access option was chosen explicitly. If stronger isolation is
+  ever needed, the fix is to replace the blanket `read: if request.auth !=
+  null` rules with an email allowlist check (`request.auth.token.email in
+  [...]`) — this was scoped and explained at the time, not silently
+  deferred.
+- **No separate sign-in step, on request — via Anonymous Auth.** Firestore
+  still needs *some* real session (`request.auth != null`) to allow the
+  reads, so the handler calls `signInAnonymously(auth)` the instant the
+  admin credentials match, then dispatches a `sadhana-admin-ready`
+  CustomEvent that `js/app.js` listens for to open the dashboard — one step,
+  no separate "now sign in for real" prompt. This widens the trade-off
+  above one step further: since `request.auth != null` is the *only* bar
+  Firestore's rules check, and anonymous sign-in requires no
+  email/password/signup at all, **any visitor who loads the site — with no
+  account, ever — can reach the same full cross-account read access**,
+  either through this credential check or by opening the browser console
+  and calling `signInAnonymously()` themselves. This was raised with the
+  user directly as a further widening beyond the already-approved
   any-signed-in-account model, alongside two alternatives (a hardcoded
   admin Firebase credential embedded in the client code — comparable
   exposure, no new provider to enable — or keeping a real-account
   requirement but streamlining that step); anonymous sign-in was the one
   chosen. **Requires the "Anonymous" sign-in provider enabled in the
   Firebase console** (Authentication → Sign-in method) — without it,
-  `signInAnonymously()` rejects with `auth/operation-not-allowed`, which
-  `attemptAdminLogin()` catches and surfaces as a specific "enable
-  Anonymous sign-in" message rather than a generic failure.
-- **`js/auth-ui.js` ignores this anonymous session.** Its
-  `onAuthStateChanged` handler would otherwise treat *any* signed-in user
-  as a normal login — creating a workspace for them, flipping to the
-  user-select screen, dispatching `sadhana-auth-ready` — none of which
-  makes sense for a session that exists only to satisfy a Firestore rule
-  check. It short-circuits with `if (user.isAnonymous) return;` right at
-  the top of that handler, before any of that runs, leaving screen
-  management entirely to app.js's Admin code. `closeAdminScreen()`
-  correspondingly checks `auth.currentUser && !auth.currentUser.isAnonymous`
-  before treating "signed in" as "show the user-select screen" — an
-  anonymous-only session (or no session) falls through to the auth screen
-  instead, which is where nothing-signed-in visitors belong.
+  `signInAnonymously()` rejects with `auth/operation-not-allowed`, which the
+  handler catches and surfaces as a specific "enable Anonymous sign-in"
+  message (via the normal `#authError` element) rather than a generic
+  failure.
+- **`onAuthStateChanged` ignores this anonymous session.** It would
+  otherwise treat *any* signed-in user as a normal login — creating a
+  workspace for them, flipping to the user-select screen, dispatching
+  `sadhana-auth-ready` — none of which makes sense for a session that
+  exists only to satisfy a Firestore rule check. It short-circuits with `if
+  (user.isAnonymous) return;` right at the top of that handler, before any
+  of that runs, leaving screen management entirely to app.js's
+  `sadhana-admin-ready` listener. `closeAdminScreen()` correspondingly
+  checks `auth.currentUser && !auth.currentUser.isAnonymous` before treating
+  "signed in" as "show the user-select screen" — an anonymous-only session
+  (or no session) falls through to the auth screen instead, which is where
+  nothing-signed-in visitors belong.
 - **Journal is included, on request.** The Journal module's own PIN lock
   (`journalPinHash`/`isJournalLocked()`) only gates the Journal *tab* inside
   a normal profile session — it does nothing to stop the Admin view from
@@ -488,7 +492,8 @@ deliberate, not an oversight.
   the whole `users` collection) and `adminGetWorkspaceKv(workspaceCode, key)`
   (a direct `getDoc` on an arbitrary workspace's `kv` doc, not scoped to
   `setActiveWorkspace()`) live in `js/cloud-store.js` next to the normal
-  per-workspace helpers. `js/app.js`'s Admin code reuses the *exact* same
+  per-workspace helpers. `js/app.js`'s Admin code (`openAdminScreen()` and
+  everything it calls) reuses the *exact* same
   `normalizeData()`/`defaultData()`/rendering helpers (`escapeHtml`,
   `fmtShort`, `categoryLabel`, `JOURNAL_RATING_KEYS`,
   `JOURNAL_ENTRY_FIELD_DEFS`, `journalEntryTypeMeta`) as the profile's own
@@ -498,7 +503,8 @@ deliberate, not an oversight.
   `currentUser` (an in-app profile is selected → back to the app screen)
   before falling back to the user-select or auth screen (see above) — it
   doesn't assume which screen was open before Admin, since Admin can be
-  entered from any of them.
+  entered from any of them (in practice, only the auth screen, since that's
+  where the sign-in form lives).
 
 ## Event contract between auth-ui.js and app.js
 
@@ -514,6 +520,12 @@ them, they communicate via `document.dispatchEvent(new CustomEvent(...))`:
   app.js stops any running timers/counters and clears in-memory state.
 - `sadhana-signed-out` — dispatched once Firebase confirms the user is
   signed out.
+- `sadhana-admin-ready` — dispatched after the login form's admin
+  credential check passes and the resulting anonymous sign-in succeeds.
+  app.js listens and calls `openAdminScreen()`. Deliberately **not** folded
+  into `sadhana-auth-ready`, since an anonymous Admin session has no
+  workspace/profile and must never run through `initApp()`'s normal
+  profile-loading path.
 
 If you add new cross-module behavior, prefer adding another named event over
 importing between auth-ui.js and app.js — it keeps the auth flow swappable
@@ -668,15 +680,18 @@ browser:
     invite code) and confirm the same teaching appears — this is the one
     piece of data that should NOT be workspace-scoped, unlike everything
     else.
-18. Admin — gate: click the fixed top-right "🛡 Admin" button (from any
-    screen — it's the same button everywhere) with an incorrect password
-    and confirm it's rejected. Fully signed out, enter the correct password
-    (`SriGuruBabaJi`) and confirm the Admin dashboard opens directly — no
-    separate sign-in step. If "Anonymous" isn't yet enabled as a sign-in
-    provider in the Firebase console, confirm entering the correct password
-    shows the specific "enable Anonymous sign-in" error instead of a
-    generic failure. "Exit Admin" from this state returns to the sign-in
-    screen (not an empty profile-picker screen).
+18. Admin — gate: confirm there is no Admin button/icon anywhere in the UI.
+    On the ordinary sign-in form, type username `admin` with an incorrect
+    password and confirm it's rejected exactly like any other failed
+    sign-in (no hint that "admin" is special). With username `admin` and
+    password `SriGuruBabaJi`, confirm the Admin dashboard opens directly —
+    no separate sign-in step or second prompt. If "Anonymous" isn't yet
+    enabled as a sign-in provider in the Firebase console, confirm this
+    instead shows the specific "enable Anonymous sign-in" error (via the
+    normal sign-in error area) rather than a generic failure. "Exit Admin"
+    from this state returns to the sign-in screen (not an empty
+    profile-picker screen). Confirm a normal account's email/password
+    sign-in still works unaffected.
 19. Admin — dashboard: confirm every account that has ever signed up appears
     in the account list (not just the current one). Select an account and
     confirm its profiles list correctly, and that switching between

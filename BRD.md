@@ -650,17 +650,79 @@ Anonymous sign-in" error rather than a silent or generic failure.
 
 ## E.4 Success criteria
 
-- The Admin button appears in the same top-right position on every screen
-  (auth, user-select, app), never inline with other content.
+- (Superseded by Addendum F: the Admin button was removed entirely in
+  favor of a credential check on the normal sign-in form.)
 - A code change deployed to the live site is visible on the very next page
   load for a returning visitor, not the load after that.
 - A Guru's Teaching that fails to save shows a visible error rather than
   silently disappearing.
-- With no prior sign-in of any kind, entering the correct Admin password
-  opens the dashboard directly — no separate sign-in screen or step is
-  ever shown to someone who knows the password.
-- If Anonymous sign-in isn't enabled on the Firebase project, the Admin
-  password prompt shows a specific, actionable error instead of a generic
-  one.
+- (Superseded by Addendum F: no password prompt exists anymore — see
+  there for the current Admin entry flow.)
+- If Anonymous sign-in isn't enabled on the Firebase project, attempting
+  Admin sign-in shows a specific, actionable error instead of a generic
+  one (still true — see Addendum F for where this error now surfaces).
 - Exiting Admin when no real account was ever signed in returns to the
   sign-in screen, not an empty (broken-looking) profile-picker screen.
+
+# Addendum F — Admin Access Moved Into the Normal Sign-In Form
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-18 |
+
+## F.1 Objective
+
+A further, final correction to the Admin module (Addenda D and E): remove
+the dedicated Admin button and password modal entirely. Instead, typing
+username `admin` and password `SriGuruBabaJi` into the app's *existing*,
+ordinary sign-in form should log into Admin directly — no separate button,
+icon, or modal anywhere in the UI.
+
+## F.2 Scope delivered
+
+- Removed the fixed top-right Admin button and its password modal
+  (`#adminBtn`, `#adminLoginModal` and everything in it) from `index.html`,
+  and the corresponding `ADMIN_PASSWORD` / `attemptAdminLogin()` /
+  `openAdminLoginModal()` code from `js/app.js`.
+- The ordinary `#loginForm` submit handler in `js/auth-ui.js` now checks
+  for the admin username/password *before* attempting a normal Firebase
+  sign-in; on a match it signs in anonymously (same mechanism as Addendum
+  E — still required, since Firestore's rules need a real session) and
+  dispatches a new `sadhana-admin-ready` event that `js/app.js` listens for
+  to open the dashboard. Anything else falls through to the normal
+  sign-in path, completely unchanged.
+- `#loginEmail` changed from `type="email"` to `type="text"`, since a
+  browser's built-in `type="email"` validation silently blocks a form from
+  submitting a bare value like `admin` (no `@`) — this would have made the
+  admin credential check impossible to trigger at all.
+- The Admin dashboard screen itself (account list, per-profile detail,
+  Journal included) is unchanged from Addenda D/E — only how you reach it
+  changed.
+
+## F.3 Trade-offs (unchanged from Addendum E, still applies)
+
+The security trade-off from Addendum E is unaffected by this change: the
+credential check is still plain client-side JavaScript that Firestore's
+rules can't see, anonymous sign-in still requires no real account, and any
+visitor to the site can still reach the same cross-account read access
+either through this form or by calling Firebase's sign-in API directly
+from the browser console. Moving the check from a separate button/modal
+into the normal login form doesn't change what it grants access to or who
+can reach it — it only changes the UI path to get there, per the user's
+explicit preference for "log in normally" over a distinct Admin button.
+
+## F.4 Success criteria
+
+- No Admin button, icon, or modal is visible or discoverable anywhere in
+  the app's UI.
+- Submitting the normal sign-in form with username `admin` and the correct
+  password opens the Admin dashboard directly, in one step.
+- Submitting that same form with username `admin` and an incorrect
+  password fails exactly like any other failed sign-in attempt — no hint
+  that "admin" is treated specially.
+- A normal account's email/password sign-in continues to work exactly as
+  before, unaffected by this change.
+- If Anonymous sign-in isn't enabled on the Firebase project, attempting
+  the admin credentials shows a specific, actionable error in the same
+  place normal sign-in errors appear, rather than a generic failure.

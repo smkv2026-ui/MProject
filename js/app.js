@@ -5,7 +5,6 @@ import {
   adminListAllUsers, adminGetWorkspaceKv
 } from "./cloud-store.js";
 import { auth } from "./firebase-init.js";
-import { signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
   const SANDHYAS = ['morning','afternoon','evening'];
   const SANDHYA_LABEL = { morning:'Morning sandhyā', afternoon:'Afternoon sandhyā', evening:'Evening sandhyā', any:'Daily (no sandhyā)' };
@@ -3815,70 +3814,22 @@ import { signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.2/fi
   }
 
   /* ---------- Admin ----------
-     A password-gated dashboard listing every account (users/{uid} doc)
-     ever created, and — per account — every profile in its workspace with
-     full tracker data, Journal included. The password (ADMIN_PASSWORD)
-     only gates the button in this UI; it cannot gate the underlying
-     Firestore reads (rules can't see what was typed into a page), so
-     firestore.rules deliberately allows any signed-in account to read
-     every account's users document and every kv document in every
-     workspace — see the comment there and "Admin module" in CLAUDE.md for
-     why this was an explicit, user-approved trade-off rather than an
-     oversight. Write access stays restricted to each account's own data. */
-  const ADMIN_PASSWORD = 'SriGuruBabaJi';
+     A dashboard listing every account (users/{uid} doc) ever created, and
+     — per account — every profile in its workspace with full tracker
+     data, Journal included. There is no separate Admin UI at all: typing
+     "admin" / "SriGuruBabaJi" into the ordinary sign-in form (js/auth-ui.js)
+     is what opens it — see the "sadhana-admin-ready" event below and
+     "Admin module" in CLAUDE.md for why the credential check can't be a
+     real Firestore-enforced gate, and why that's a deliberate, user-
+     approved trade-off rather than an oversight. Write access stays
+     restricted to each account's own data regardless. */
   let adminAccounts = [];
   let adminSelectedUid = null;
   let adminSelectedWorkspaceCode = null;
   let adminSelectedWorkspaceUsers = [];
   let adminSelectedProfileId = null;
 
-  function openAdminLoginModal(){
-    document.getElementById('adminPasswordInput').value = '';
-    document.getElementById('adminLoginError').style.display = 'none';
-    document.getElementById('adminLoginModal').classList.add('open');
-    setTimeout(()=>document.getElementById('adminPasswordInput').focus(), 50);
-  }
-  function closeAdminLoginModal(){
-    document.getElementById('adminLoginModal').classList.remove('open');
-  }
-
-  async function attemptAdminLogin(){
-    const pw = document.getElementById('adminPasswordInput').value;
-    const errEl = document.getElementById('adminLoginError');
-    if(pw !== ADMIN_PASSWORD){
-      errEl.textContent = 'Incorrect password.';
-      errEl.style.display = '';
-      return;
-    }
-    if(!auth.currentUser){
-      // Password alone should be enough to reach Admin — sign in
-      // anonymously behind the scenes purely so Firestore's rules (which
-      // require request.auth != null for every read) let the dashboard's
-      // reads through. This needs "Anonymous" enabled as a sign-in
-      // provider in the Firebase console (see README.md); if it isn't,
-      // surface that clearly instead of a generic failure.
-      const submitBtn = document.getElementById('adminLoginSubmit');
-      submitBtn.disabled = true;
-      try{
-        await signInAnonymously(auth);
-      }catch(e){
-        errEl.textContent = e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed'
-          ? 'Anonymous sign-in isn\'t enabled on this Firebase project yet — enable it under Authentication → Sign-in method, then try again.'
-          : 'Could not open Admin: '+e.message;
-        errEl.style.display = '';
-        submitBtn.disabled = false;
-        return;
-      }
-      submitBtn.disabled = false;
-    }
-    closeAdminLoginModal();
-    await openAdminScreen();
-  }
-
-  document.getElementById('adminBtn').addEventListener('click', openAdminLoginModal);
-  document.getElementById('adminLoginCancel').addEventListener('click', closeAdminLoginModal);
-  document.getElementById('adminLoginSubmit').addEventListener('click', attemptAdminLogin);
-  document.getElementById('adminPasswordInput').addEventListener('keydown', ev=>{ if(ev.key==='Enter') attemptAdminLogin(); });
+  document.addEventListener('sadhana-admin-ready', ()=>{ openAdminScreen(); });
   document.getElementById('adminExitBtn').addEventListener('click', closeAdminScreen);
 
   async function openAdminScreen(){

@@ -9,7 +9,8 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  signInAnonymously
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
   setActiveWorkspace,
@@ -71,6 +72,15 @@ function updateJoinCodeVisibility() {
 }
 
 /* ---------- Sign in ---------- */
+// Admin dashboard (see "Admin module" in CLAUDE.md): there is no separate
+// Admin UI — signing in with this exact username/password on the ordinary
+// sign-in form opens it instead of a normal account. The check is entirely
+// client-side (Firestore rules can't see what was typed into a page), so
+// this is a UI convenience, not a real access boundary — see CLAUDE.md for
+// the full trade-off before changing who can reach this.
+const ADMIN_USERNAME = "admin";
+const ADMIN_PASSWORD = "SriGuruBabaJi";
+
 $("loginForm").addEventListener("submit", async e => {
   e.preventDefault();
   clearMessages();
@@ -78,6 +88,22 @@ $("loginForm").addEventListener("submit", async e => {
   const password = $("loginPassword").value;
   $("loginSubmit").disabled = true;
   try {
+    if (email.toLowerCase() === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+      // Firestore's rules still require request.auth != null for every
+      // read, so this needs *some* real session — sign in anonymously
+      // rather than as a normal account (no workspace/profile of its own,
+      // and onAuthStateChanged below ignores it for the usual sign-in flow).
+      try {
+        await signInAnonymously(auth);
+      } catch (err) {
+        showError(err.code === "auth/admin-restricted-operation" || err.code === "auth/operation-not-allowed"
+          ? "Anonymous sign-in isn't enabled on this Firebase project yet — enable it under Authentication → Sign-in method, then try again."
+          : friendlyAuthError(err));
+        return;
+      }
+      document.dispatchEvent(new CustomEvent("sadhana-admin-ready"));
+      return;
+    }
     await signInWithEmailAndPassword(auth, email, password);
   } catch (err) {
     showError(friendlyAuthError(err));

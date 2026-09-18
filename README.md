@@ -31,11 +31,11 @@ In the Firebase console: **Build ▸ Authentication ▸ Sign-in method**, enable
 
 - **Email/Password**
 - **Google**
-- **Anonymous** — needed only for the Admin dashboard (🛡 top-right button):
-  entering its password signs in anonymously behind the scenes so Firestore
-  will allow the read, with no separate account/sign-in step for whoever
-  knows the password. Skip this one if you don't want the Admin feature to
-  work at all — everything else in the app works without it.
+- **Anonymous** — needed only for the Admin dashboard (see below): signing
+  in on the ordinary form as `admin` signs in anonymously behind the
+  scenes so Firestore will allow the read, with no separate sign-in step.
+  Skip this one if you don't want the Admin feature to work at all —
+  everything else in the app works without it.
 
 (You can skip Email/Password or Google if you prefer — the corresponding UI
 on the sign-in screen will just fail gracefully if you skip a provider, but
@@ -129,18 +129,19 @@ its scope covers the whole app.
   plus a long-term goals checklist, a searchable Timeline of past entries,
   and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
   shared device.
-- **Admin** (🛡 fixed to the top-right corner, visible on every screen) is a
-  password-gated view (password: `SriGuruBabaJi`) that lists every account
-  ever created on the app and lets you drill into any account's profiles
-  and their full data, Journal included. The password alone is enough —
-  entering it signs you in anonymously behind the scenes (needs the
-  "Anonymous" provider enabled, step 2) so there's no separate sign-in step.
-  **Important:** because a password typed into a web page can't be verified
-  by Firestore's security rules, and anonymous sign-in requires no account
-  at all, this means **any visitor to the site can reach this same
-  cross-account read access** — with the password, or by calling Firebase's
-  sign-in API directly. See "Admin module" in CLAUDE.md for the full
-  trade-off (and the alternatives that were considered) before changing who
+- **Admin** has no button or icon anywhere — sign in on the normal sign-in
+  form with username `admin` and password `SriGuruBabaJi` and it opens a
+  dashboard listing every account ever created on the app, letting you
+  drill into any account's profiles and their full data, Journal included.
+  No separate step: entering those credentials signs you in anonymously
+  behind the scenes (needs the "Anonymous" provider enabled, step 2) and
+  opens straight to the dashboard. **Important:** because a credential
+  check typed into a web page's form can't be verified by Firestore's
+  security rules, and anonymous sign-in requires no account at all, this
+  means **any visitor to the site can reach this same cross-account read
+  access** — with those credentials, or by calling Firebase's sign-in API
+  directly. See "Admin module" in CLAUDE.md for the full trade-off (and
+  the alternatives that were considered) before changing who
   can access this feature.
 
 ## Project layout

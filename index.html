@@ -23,11 +23,6 @@
 </head>
 <body>
 
-<!-- Admin: one fixed entry point, pinned to the actual top-right of the
-     viewport regardless of which screen (auth / user-select / app) is
-     currently showing — not placed inside any one screen's own layout. -->
-<button class="admin-fixed-btn" id="adminBtn" type="button" title="Admin">🛡 Admin</button>
-
 <!-- Auth screen (sign in / create account) -->
 <div class="user-screen" id="authScreen">
   <div class="user-screen-inner" style="max-width:380px;">
@@ -41,7 +36,11 @@
       </div>
 
       <form class="auth-form" id="loginForm">
-        <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" required>
+        <!-- type="text" (not "email"): the Admin dashboard signs in via
+             this same field with the username "admin" (see js/auth-ui.js
+             and "Admin module" in CLAUDE.md), which type="email" would
+             block the browser from ever submitting. -->
+        <input type="text" id="loginEmail" placeholder="Email" autocomplete="email" required>
         <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" required>
         <button class="pill" type="submit" id="loginSubmit">Sign in</button>
         <button type="button" class="add-link" id="forgotPasswordBtn">Forgot password?</button>
@@ -374,21 +373,10 @@
   </div>
 </div>
 
-<!-- Admin password gate -->
-<div class="fullscreen" id="adminLoginModal">
-  <div class="account-panel">
-    <h3 class="serif" style="margin:0 0 14px;">Admin sign-in</h3>
-    <p class="empty-note" style="margin-bottom:14px;">Enter the admin password to view every account created on this app.</p>
-    <input type="password" id="adminPasswordInput" placeholder="Admin password" class="journal-pin-input" style="letter-spacing:normal;">
-    <div class="empty-note journal-unlock-error" id="adminLoginError" style="display:none;"></div>
-    <div class="form-actions" style="margin-top:10px;">
-      <button class="pill" id="adminLoginSubmit" type="button">Enter</button>
-      <button class="pill ghost" id="adminLoginCancel" type="button">Cancel</button>
-    </div>
-  </div>
-</div>
-
-<!-- Admin dashboard: every account created on the app -->
+<!-- Admin dashboard: every account created on the app. No separate
+     login UI — signing in on the ordinary form above with username
+     "admin" / password "SriGuruBabaJi" opens this instead (see
+     js/auth-ui.js and "Admin module" in CLAUDE.md). -->
 <div class="user-screen" id="adminScreen" style="display:none; align-items:flex-start;">
   <div class="user-screen-inner" style="max-width:960px; text-align:left;">
     <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
