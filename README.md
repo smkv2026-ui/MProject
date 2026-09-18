@@ -31,10 +31,15 @@ In the Firebase console: **Build ▸ Authentication ▸ Sign-in method**, enable
 
 - **Email/Password**
 - **Google**
+- **Anonymous** — needed only for the Admin dashboard (🛡 top-right button):
+  entering its password signs in anonymously behind the scenes so Firestore
+  will allow the read, with no separate account/sign-in step for whoever
+  knows the password. Skip this one if you don't want the Admin feature to
+  work at all — everything else in the app works without it.
 
-(You can enable only one if you prefer — the corresponding UI on the sign-in
-screen will just fail gracefully if you skip a provider, but enabling both
-matches what's built.)
+(You can skip Email/Password or Google if you prefer — the corresponding UI
+on the sign-in screen will just fail gracefully if you skip a provider, but
+enabling both matches what's built.)
 
 ## 3. Create the Firestore database
 
@@ -124,16 +129,18 @@ its scope covers the whole app.
   plus a long-term goals checklist, a searchable Timeline of past entries,
   and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
   shared device.
-- **Admin** (🛡 top-right, on the sign-in screen, the user-select screen, or
-  the app header) is a password-gated view (password: `SriGuruBabaJi`) that
-  lists every account ever created on the app and lets you drill into any
-  account's profiles and their full data, Journal included. You must be
-  signed in with *some* account for it to load data (Firestore reads need
-  an active session) — the password alone isn't enough. **Important:**
-  because a password typed into a web page can't be verified by Firestore's
-  security rules, making this view work required allowing any signed-in
-  account to read every other account's data at the database level — see
-  "Admin module" in CLAUDE.md for the full trade-off before changing who
+- **Admin** (🛡 fixed to the top-right corner, visible on every screen) is a
+  password-gated view (password: `SriGuruBabaJi`) that lists every account
+  ever created on the app and lets you drill into any account's profiles
+  and their full data, Journal included. The password alone is enough —
+  entering it signs you in anonymously behind the scenes (needs the
+  "Anonymous" provider enabled, step 2) so there's no separate sign-in step.
+  **Important:** because a password typed into a web page can't be verified
+  by Firestore's security rules, and anonymous sign-in requires no account
+  at all, this means **any visitor to the site can reach this same
+  cross-account read access** — with the password, or by calling Firebase's
+  sign-in API directly. See "Admin module" in CLAUDE.md for the full
+  trade-off (and the alternatives that were considered) before changing who
   can access this feature.
 
 ## Project layout

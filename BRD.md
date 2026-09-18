@@ -556,9 +556,9 @@ checking with the user first.
 - A Guru's Teaching added from any account appears for every other account,
   including one that just signed up and hasn't joined any existing
   household's shared space.
-- The Admin password gate rejects an incorrect password, and rejects a
-  correct password if the browser has no active Firebase Auth session
-  (asking the user to sign in first rather than failing silently).
+- The Admin password gate rejects an incorrect password. (Its behavior
+  with a correct password and no prior sign-in changed in Addendum E —
+  see there for the current, final behavior.)
 - With the correct password and an active session, the Admin dashboard
   lists every account that has ever signed up, and selecting one correctly
   loads that account's profiles and, per profile, its full tracker data
@@ -566,3 +566,101 @@ checking with the user first.
 - Regular (non-Admin) app usage is functionally unchanged: no new
   permission prompts, no behavior difference for someone who never opens
   the Admin view.
+
+# Addendum E — Admin Fixes: Placement, Stale-Cache Reports, Password-Only Access
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-18 |
+
+## E.1 Objective
+
+Follow-on bug reports and a UX correction on the Admin module (Addendum D):
+the Admin button rendered in the wrong place, both the Admin dashboard and
+the global Guru's Teachings library appeared "not working" after being
+deployed, and — once those were fixed — a further explicit request that the
+Admin password alone should be sufficient, with no separate sign-in step
+first.
+
+## E.2 Scope delivered
+
+**Admin button placement**: replaced three separate per-screen buttons
+(each `position:absolute` inside its own screen's layout, which could
+render inconsistently — one report had it appearing inline next to the
+login form) with a single button fixed to the actual top-right of the
+viewport, present identically on every screen.
+
+**Stale-cache "not working" reports**: root-caused to the service worker's
+cache-first app-shell strategy, which served a returning visitor's
+*previous* cached version on their first reload after any deploy (the
+network fetch that refreshed the cache happened too late to affect that
+load) — a second reload was needed to see a change. This looked identical
+to a broken deploy for both the Admin dashboard and global Guru's
+Teachings, even though both had shipped correctly. Switched to
+network-first (always fetch fresh when online; fall back to cache only
+when offline) so a deploy is visible on the very next load. Also added a
+visible error (not just a console log) when a Guru's Teaching fails to
+save, since a silent permission-denied error (e.g. from `firestore.rules`
+not yet being redeployed) looked identical to "nothing happened."
+
+**Password-only Admin access**: the user reported that requiring a sign-in
+before the password prompt would work defeated the point — clicking Admin,
+entering the password, and pressing enter should be sufficient by itself.
+Implemented via Firebase Anonymous Authentication: `attemptAdminLogin()`
+now calls `signInAnonymously()` automatically the moment the password
+matches, if nobody is already signed in, then opens the dashboard —
+matching the requested one-step flow. `js/auth-ui.js`'s auth-state handling
+was updated to ignore this anonymous session (it has no profile or
+workspace and shouldn't trigger the normal sign-in UI flow).
+
+## E.3 A further security trade-off (flagged before shipping, not silent)
+
+This was raised with the user directly before implementation, since it
+widens the trade-off already made in Addendum D one step further, and
+required a manual decision:
+
+Firestore's rules can only ever check *whether* a request is authenticated
+(`request.auth != null`), never *what a user typed into the page* — so
+"password alone, no account" can only be built by having the app sign
+someone in through some real (if minimal) auth mechanism the instant the
+password matches. Anonymous Authentication is that mechanism: no email, no
+password, no signup, from the visitor's side. The direct consequence:
+**any visitor to the site — with no account, ever created — can reach the
+exact same cross-account read access Admin has**, either through the
+password prompt or by opening the browser's developer console and calling
+Firebase's `signInAnonymously()` directly, bypassing the password entirely.
+Previously (Addendum D), reaching that data required *some* signed-up
+account, even though any account could then see everything; this removes
+even that minimal step.
+
+Two alternatives were offered alongside this one:
+1. A hardcoded admin email/password Firebase account, auto-signed-into
+   behind the password prompt — comparable exposure (credentials visible
+   to anyone reading the client code) but no new sign-in provider to
+   enable in Firebase.
+2. Keep requiring a real account first, but streamline that step (e.g. a
+   sign-in form inside the same Admin modal) rather than sending the user
+   away to hunt for the normal sign-in screen.
+
+Anonymous Authentication was the option chosen. It requires enabling
+"Anonymous" as a sign-in provider in the Firebase console (see README.md
+step 2) — without it, the Admin password prompt shows a specific "enable
+Anonymous sign-in" error rather than a silent or generic failure.
+
+## E.4 Success criteria
+
+- The Admin button appears in the same top-right position on every screen
+  (auth, user-select, app), never inline with other content.
+- A code change deployed to the live site is visible on the very next page
+  load for a returning visitor, not the load after that.
+- A Guru's Teaching that fails to save shows a visible error rather than
+  silently disappearing.
+- With no prior sign-in of any kind, entering the correct Admin password
+  opens the dashboard directly — no separate sign-in screen or step is
+  ever shown to someone who knows the password.
+- If Anonymous sign-in isn't enabled on the Firebase project, the Admin
+  password prompt shows a specific, actionable error instead of a generic
+  one.
+- Exiting Admin when no real account was ever signed in returns to the
+  sign-in screen, not an empty (broken-looking) profile-picker screen.

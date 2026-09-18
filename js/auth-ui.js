@@ -206,6 +206,14 @@ onAuthStateChanged(auth, async user => {
     document.dispatchEvent(new CustomEvent("sadhana-signed-out"));
     return;
   }
+  // An anonymous session exists only to satisfy Firestore's request.auth !=
+  // null check for the Admin dashboard (see js/app.js "Admin" — it signs in
+  // anonymously behind the password prompt rather than requiring a real
+  // account first). It has no profile, no workspace, and isn't a "real"
+  // sign-in from this screen's point of view, so skip the normal
+  // attach-a-workspace / show-user-select-screen flow entirely and let
+  // app.js's Admin code manage the screen instead.
+  if (user.isAnonymous) return;
   try {
     if (!getActiveWorkspace()) {
       const joinCode = pendingJoinCode;

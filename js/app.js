@@ -5,6 +5,7 @@ import {
   adminListAllUsers, adminGetWorkspaceKv
 } from "./cloud-store.js";
 import { auth } from "./firebase-init.js";
+import { signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
   const SANDHYAS = ['morning','afternoon','evening'];
   const SANDHYA_LABEL = { morning:'Morning sandhyā', afternoon:'Afternoon sandhyā', evening:'Evening sandhyā', any:'Daily (no sandhyā)' };
@@ -3850,9 +3851,25 @@ import { auth } from "./firebase-init.js";
       return;
     }
     if(!auth.currentUser){
-      errEl.textContent = 'Sign in with any account first, then reopen Admin.';
-      errEl.style.display = '';
-      return;
+      // Password alone should be enough to reach Admin — sign in
+      // anonymously behind the scenes purely so Firestore's rules (which
+      // require request.auth != null for every read) let the dashboard's
+      // reads through. This needs "Anonymous" enabled as a sign-in
+      // provider in the Firebase console (see README.md); if it isn't,
+      // surface that clearly instead of a generic failure.
+      const submitBtn = document.getElementById('adminLoginSubmit');
+      submitBtn.disabled = true;
+      try{
+        await signInAnonymously(auth);
+      }catch(e){
+        errEl.textContent = e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed'
+          ? 'Anonymous sign-in isn\'t enabled on this Firebase project yet — enable it under Authentication → Sign-in method, then try again.'
+          : 'Could not open Admin: '+e.message;
+        errEl.style.display = '';
+        submitBtn.disabled = false;
+        return;
+      }
+      submitBtn.disabled = false;
     }
     closeAdminLoginModal();
     await openAdminScreen();
@@ -3890,10 +3907,14 @@ import { auth } from "./firebase-init.js";
     if(currentUser){
       document.getElementById('appScreen').style.display = '';
       document.getElementById('addActivityFab').style.display = '';
-    } else if(auth.currentUser){
+    } else if(auth.currentUser && !auth.currentUser.isAnonymous){
       document.getElementById('userSelectScreen').style.display = '';
       renderUserGrid();
     } else {
+      // Either nobody was signed in, or the only session is the anonymous
+      // one Admin itself created to satisfy Firestore's request.auth check
+      // — neither has a real profile/workspace, so the sign-in screen is
+      // the right place to land back on.
       document.getElementById('authScreen').style.display = '';
     }
   }
