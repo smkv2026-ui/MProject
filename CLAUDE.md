@@ -60,7 +60,7 @@ js/chakra-data.js        A large base64-encoded standalone HTML document
                          regenerate it from the source HTML if it ever needs
                          to change.
 manifest.webmanifest     PWA manifest.
-service-worker.js        App-shell cache (see PWA behavior below).
+service-worker.js        App-shell cache (see "PWA app-shell caching" below).
 icons/                   Generated PWA icons (mala-bead motif, app palette).
 firestore.rules          Security rules enforcing workspace membership.
 firebase.json            Hosting + Firestore deploy config.
@@ -406,13 +406,24 @@ new signup that hasn't joined anyone's workspace.
 
 ## Admin module
 
-A password-gated dashboard (top-right "🛡 Admin" entry point on the auth
-screen, the user-select screen, and the main app header) that lists every
-account ever created on the app and, per account, every profile in its
-workspace with that profile's full tracker data — Journal entries included.
-This was built at the user's explicit request, including an explicit choice
-between two possible security models (see below) — it is not a "hidden"
-feature and its trade-offs are deliberate, not an oversight.
+A password-gated dashboard that lists every account ever created on the app
+and, per account, every profile in its workspace with that profile's full
+tracker data — Journal entries included. This was built at the user's
+explicit request, including an explicit choice between two possible security
+models (see below) — it is not a "hidden" feature and its trade-offs are
+deliberate, not an oversight.
+
+- **One entry point, fixed to the actual viewport corner.** `#adminBtn` is a
+  single `<button>` placed directly under `<body>`, before all three screens
+  (auth / user-select / app), styled `position:fixed; top:14px; right:14px`
+  (`.admin-fixed-btn` in css/styles.css) — so it's always the literal
+  top-right of whatever the user is looking at, regardless of which screen
+  is showing. The first version of this placed a separate button inside
+  each of the three screens using `position:absolute`, which depended on
+  each screen's own layout/flex context and rendered inconsistently (one
+  report: it appeared inline next to the login form instead of in the
+  corner). Don't go back to per-screen buttons — one fixed element avoids
+  that whole class of layout bug.
 
 - **The password cannot be a real Firestore-enforced gate.** `ADMIN_PASSWORD`
   (`'SriGuruBabaJi'`, in `js/app.js`) is checked entirely client-side —
@@ -513,6 +524,28 @@ without app.js needing to know about it.
   images at personal/household scale, but don't remove the resize step or
   let this grow into a general file-upload feature without moving images to
   Firebase Storage instead.
+
+## PWA app-shell caching (service-worker.js)
+
+`service-worker.js` caches the app shell (markup, styles, script, icons —
+`PRECACHE_URLS`) so the app opens instantly and still works with no network.
+Its `fetch` handler for same-origin GET requests is **network-first**: try
+the network, cache the fresh response on success, and only fall back to the
+cached copy when the network request actually fails (offline). This was
+changed from an earlier cache-first strategy that returned the cached
+response immediately and updated the cache in the background — which meant
+after every deploy, a returning visitor's *first* reload after that deploy
+still showed the previous version (the fetch that would've refreshed the
+cache happened, but too late to affect the response already returned), and
+only a *second* reload showed the change. That looked exactly like "the new
+feature isn't there" even though the deploy had succeeded — don't reintroduce
+cache-first for the app shell without solving that staleness problem some
+other way (e.g. an explicit "update available" prompt).
+
+`CACHE_VERSION` still exists so the `activate` handler can evict old cache
+entries when bumped — bump it when you want a clean cutover (e.g. after
+removing a precached file from `PRECACHE_URLS`), but it is no longer what
+makes updates show up; the network-first fetch handler does that on its own.
 
 ## Local development
 

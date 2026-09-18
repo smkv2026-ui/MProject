@@ -154,3 +154,13 @@ built against.
 - **Nothing loads offline on first try** — the service worker only caches
   the app shell after your *first* successful online visit; reload once
   online, then try offline.
+- **A new feature (or a code change you deployed) doesn't seem to be there**
+  — this app is a PWA with a service worker; on a repeat visit, check the
+  browser console for `Failed to load resource` / `permission-denied`
+  errors, but also just try closing the tab and reopening it once. If a
+  brand-new Guru's Teaching or the Admin dashboard specifically doesn't
+  work after you've deployed the latest code, re-check step 4 — the new
+  `globalKv` collection and the Admin view's cross-account reads both need
+  the current `firestore.rules` deployed (`firebase deploy --only
+  firestore:rules`); the app's *code* can be live on your host while the
+  *rules* are still the old version, since those are deployed separately.

@@ -145,7 +145,14 @@ import { auth } from "./firebase-init.js";
   }
   async function saveGurus(){
     try{ await globalSet(GURUS_KEY, JSON.stringify(gurus)); }
-    catch(e){ console.error('save gurus failed', e); }
+    catch(e){
+      console.error('save gurus failed', e);
+      // Surfaced (not just logged) because a silent failure here looks
+      // identical to "it saved but didn't sync" — the most likely cause is
+      // firestore.rules not yet deployed with the globalKv collection rule
+      // this feature needs (see CLAUDE.md "Guru's Teachings is global").
+      alert('Could not save this to Guru\'s Teachings: '+e.message+'\n\nIf this keeps happening, the app\'s Firestore security rules may need to be redeployed.');
+    }
   }
   function findOrCreateGuru(name){
     const key = name.trim().toLowerCase();
@@ -3851,10 +3858,7 @@ import { auth } from "./firebase-init.js";
     await openAdminScreen();
   }
 
-  ['adminBtnAuth','adminBtnUserSelect','adminBtnApp'].forEach(id=>{
-    const btn = document.getElementById(id);
-    if(btn) btn.addEventListener('click', openAdminLoginModal);
-  });
+  document.getElementById('adminBtn').addEventListener('click', openAdminLoginModal);
   document.getElementById('adminLoginCancel').addEventListener('click', closeAdminLoginModal);
   document.getElementById('adminLoginSubmit').addEventListener('click', attemptAdminLogin);
   document.getElementById('adminPasswordInput').addEventListener('keydown', ev=>{ if(ev.key==='Enter') attemptAdminLogin(); });

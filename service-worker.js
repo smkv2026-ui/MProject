@@ -1,8 +1,10 @@
 // App-shell service worker. Firestore's own persistent local cache (see
 // js/firebase-init.js) handles offline data; this worker only makes the
-// static shell (markup, styles, script, icons) load instantly and work
-// offline, so the app still opens without a network connection.
-const CACHE_VERSION = 'sadhana-v2';
+// static shell (markup, styles, script, icons) work offline, and — since
+// this app ships new features frequently — always prefers a fresh network
+// copy over the cached one when online (see the fetch handler below), only
+// falling back to cache when there's no network at all.
+const CACHE_VERSION = 'sadhana-v3';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -45,17 +47,20 @@ self.addEventListener('fetch', event => {
   // font requests go straight to the network (and their own caching).
   if (url.origin !== self.location.origin) return;
 
+  // Network-first: always try to fetch the latest deployed version first,
+  // so a change that's live on the server shows up on the very next load
+  // (not "one reload behind," which is what a cache-first strategy gives
+  // you — that's exactly the bug this replaced: after a deploy, returning
+  // visitors kept seeing the previous version until a second reload).
+  // Only fall back to the cached copy when there's genuinely no network.
   event.respondWith(
-    caches.match(req).then(cached => {
-      const network = fetch(req).then(res => {
-        if (res && res.ok) {
-          const copy = res.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(req, copy));
-        }
-        return res;
-      }).catch(() => cached || caches.match('./index.html'));
-      return cached || network;
-    })
+    fetch(req).then(res => {
+      if (res && res.ok) {
+        const copy = res.clone();
+        caches.open(CACHE_VERSION).then(cache => cache.put(req, copy));
+      }
+      return res;
+    }).catch(() => caches.match(req).then(cached => cached || caches.match('./index.html')))
   );
 });
 

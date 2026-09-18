@@ -23,9 +23,13 @@
 </head>
 <body>
 
+<!-- Admin: one fixed entry point, pinned to the actual top-right of the
+     viewport regardless of which screen (auth / user-select / app) is
+     currently showing — not placed inside any one screen's own layout. -->
+<button class="admin-fixed-btn" id="adminBtn" type="button" title="Admin">🛡 Admin</button>
+
 <!-- Auth screen (sign in / create account) -->
 <div class="user-screen" id="authScreen">
-  <button class="admin-corner-btn" id="adminBtnAuth" type="button" title="Admin">🛡 Admin</button>
   <div class="user-screen-inner" style="max-width:380px;">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
@@ -65,7 +69,6 @@
 
 <!-- User select screen -->
 <div class="user-screen" id="userSelectScreen" style="display:none;">
-  <button class="admin-corner-btn" id="adminBtnUserSelect" type="button" title="Admin">🛡 Admin</button>
   <div class="user-screen-inner">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
@@ -106,7 +109,6 @@
       <button class="icon-btn" id="exportBtn" title="Export all data">↓</button>
       <button class="icon-btn" id="importBtn" title="Import all data">↑</button>
       <input type="file" id="importFileInput" accept="application/json" style="display:none;">
-      <button class="icon-btn" id="adminBtnApp" title="Admin">🛡</button>
     </div>
   </header>
 
