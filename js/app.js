@@ -3816,20 +3816,25 @@ import { auth } from "./firebase-init.js";
   /* ---------- Admin ----------
      A dashboard listing every account (users/{uid} doc) ever created, and
      — per account — every profile in its workspace with full tracker
-     data, Journal included. There is no separate Admin UI at all: typing
-     "admin" / "SriGuruBabaJi" into the ordinary sign-in form (js/auth-ui.js)
-     is what opens it — see the "sadhana-admin-ready" event below and
-     "Admin module" in CLAUDE.md for why the credential check can't be a
-     real Firestore-enforced gate, and why that's a deliberate, user-
-     approved trade-off rather than an oversight. Write access stays
+     data, Journal included. There is no separate Admin UI at all: signing
+     in with the admin email/password on the ordinary sign-in form
+     (js/auth-ui.js) is what opens it — see the "sadhana-admin-ready" event
+     below and "Admin module" in CLAUDE.md for why the credential check
+     can't be a real Firestore-enforced gate, and why that's a deliberate,
+     user-approved trade-off rather than an oversight. Write access stays
      restricted to each account's own data regardless. */
   let adminAccounts = [];
   let adminSelectedUid = null;
   let adminSelectedWorkspaceCode = null;
   let adminSelectedWorkspaceUsers = [];
   let adminSelectedProfileId = null;
+  // Set once per session by the sadhana-admin-ready listener below, so
+  // closeAdminScreen() knows this Firebase Auth session is the Admin
+  // account (no workspace/profile of its own) rather than a normal one,
+  // without needing to duplicate ADMIN_EMAIL from js/auth-ui.js here.
+  let adminSessionActive = false;
 
-  document.addEventListener('sadhana-admin-ready', ()=>{ openAdminScreen(); });
+  document.addEventListener('sadhana-admin-ready', ()=>{ adminSessionActive = true; openAdminScreen(); });
   document.getElementById('adminExitBtn').addEventListener('click', closeAdminScreen);
 
   async function openAdminScreen(){
@@ -3858,14 +3863,13 @@ import { auth } from "./firebase-init.js";
     if(currentUser){
       document.getElementById('appScreen').style.display = '';
       document.getElementById('addActivityFab').style.display = '';
-    } else if(auth.currentUser && !auth.currentUser.isAnonymous){
+    } else if(auth.currentUser && !adminSessionActive){
       document.getElementById('userSelectScreen').style.display = '';
       renderUserGrid();
     } else {
-      // Either nobody was signed in, or the only session is the anonymous
-      // one Admin itself created to satisfy Firestore's request.auth check
-      // — neither has a real profile/workspace, so the sign-in screen is
-      // the right place to land back on.
+      // Either nobody was signed in, or the only session is the Admin
+      // account itself — neither has a real profile/workspace, so the
+      // sign-in screen is the right place to land back on.
       document.getElementById('authScreen').style.display = '';
     }
   }

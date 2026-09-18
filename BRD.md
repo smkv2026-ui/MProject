@@ -716,13 +716,77 @@ explicit preference for "log in normally" over a distinct Admin button.
 
 - No Admin button, icon, or modal is visible or discoverable anywhere in
   the app's UI.
-- Submitting the normal sign-in form with username `admin` and the correct
-  password opens the Admin dashboard directly, in one step.
-- Submitting that same form with username `admin` and an incorrect
+- Submitting the normal sign-in form with the admin credentials and the
+  correct password opens the Admin dashboard directly, in one step.
+  (Superseded in one detail by Addendum G: the required username changed
+  from `admin` to `admin@sadhana.local` — see there.)
+- Submitting that same form with the admin username and an incorrect
   password fails exactly like any other failed sign-in attempt — no hint
-  that "admin" is treated specially.
+  that it's treated specially.
 - A normal account's email/password sign-in continues to work exactly as
   before, unaffected by this change.
-- If Anonymous sign-in isn't enabled on the Firebase project, attempting
-  the admin credentials shows a specific, actionable error in the same
-  place normal sign-in errors appear, rather than a generic failure.
+- (Superseded by Addendum G: Anonymous sign-in is no longer used at all,
+  so this no longer applies — see there for the current mechanism and its
+  own failure mode.)
+
+# Addendum G — Admin Account Switched From Anonymous Auth to a Real Account
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-18 |
+
+## G.1 Objective
+
+Testing surfaced that the Firebase project this app runs against does not
+have Anonymous Authentication enabled, and the user asked not to rely on
+enabling it — instead, use a real account: username `admin@sadhana.local`,
+password `SriGuruBabaJi`, auto-created the first time it's used.
+
+## G.2 Scope delivered
+
+- The Admin credential check in `js/auth-ui.js`'s `loginForm` handler now
+  matches `admin@sadhana.local` (previously the bare username `admin`).
+- On a match, it calls the normal `signInWithEmailAndPassword`; if that
+  fails (the account doesn't exist yet on this Firebase project),
+  `createUserWithEmailAndPassword` creates it once, transparently, and
+  every sign-in after that succeeds through the normal path. No call to
+  `signInAnonymously` remains anywhere in the codebase.
+- `#loginEmail` reverted to `type="email"` (the earlier `admin`-only
+  username needed `type="text"` to bypass the browser's built-in
+  email-format validation; `admin@sadhana.local` is a real email shape and
+  needs no workaround).
+- `onAuthStateChanged` now routes to the Admin dashboard by checking
+  `user.email === 'admin@sadhana.local'` instead of `user.isAnonymous`.
+- This removes the "Anonymous sign-in isn't enabled" error path entirely,
+  and with it the corresponding manual Firebase console setup step
+  (README.md's step 2 no longer mentions enabling Anonymous).
+
+## G.3 Trade-off (same shape as before, narrower blast radius)
+
+The core trade-off from Addenda E/F is unchanged: the credential check is
+still client-side only, and Firestore's rules still can't verify it, so
+reaching the Admin data still doesn't require true server-side
+authorization beyond "some signed-in session." What changed is *how* that
+session gets created — a real, permanent account instead of a throwaway
+anonymous one. This is documented as no broader than the already-approved
+"any signed-in account can read everything" model: this specific account's
+credentials are known (they're printed in this document and in the code's
+own comments), so anyone can sign in as it directly, without needing
+Anonymous Auth or even to create their own account first. It is not a
+new category of exposure, just a different mechanic for the same one.
+
+## G.4 Success criteria
+
+- With no Firebase console changes beyond what Email/Password sign-in
+  already required, entering `admin@sadhana.local` / `SriGuruBabaJi` on a
+  fresh Firebase project (no such account exists yet) creates the account
+  and opens the Admin dashboard in one step.
+- Entering the same credentials again on a later visit signs in normally
+  and opens the dashboard, with no re-creation attempt.
+- Entering `admin@sadhana.local` with any other password fails exactly like a
+  normal wrong-password attempt ("Email or password is incorrect"), never
+  opening the dashboard or altering the stored account.
+- A normal user's own sign-up or sign-in is entirely unaffected, unless
+  they happen to use the literal email `admin@sadhana.local` themselves (an
+  accepted, documented collision, not a bug).

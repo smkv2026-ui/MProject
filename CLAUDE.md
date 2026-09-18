@@ -410,23 +410,34 @@ A dashboard that lists every account ever created on the app and, per
 account, every profile in its workspace with that profile's full tracker
 data — Journal entries included. There is **no separate Admin UI element
 anywhere** — no button, no icon, no extra screen to discover. Signing in on
-the ordinary sign-in form (`#loginForm`) with username **`admin`** and
-password **`SriGuruBabaJi`** opens it instead of a normal account. This was
-built at the user's explicit request (an earlier version had a top-right
-button + password modal; the user asked for it to be removed in favor of
-this — go through the normal login form, nothing else) — it is not a
-"hidden" feature and its trade-offs are deliberate, not an oversight.
+the ordinary sign-in form (`#loginForm`) with email **`admin@sadhana.local`**
+and password **`SriGuruBabaJi`** opens it instead of a normal account. This
+was built at the user's explicit request, through two rounds of
+correction — an earlier version had a top-right button + password modal
+(removed: "log in normally, nothing else"), then a version using Anonymous
+Auth with a bare `admin` username (replaced: the user's Firebase project
+doesn't have Anonymous sign-in enabled and asked for a real email/password
+account instead) — it is not a "hidden" feature and its trade-offs are
+deliberate, not an oversight.
 
 - **It's a credential check inside the normal login handler, not a separate
   flow.** `js/auth-ui.js`'s `loginForm` submit handler checks
-  `email.toLowerCase() === 'admin' && password === 'SriGuruBabaJi'` *before*
-  calling `signInWithEmailAndPassword` — if it matches, that call never
-  happens at all; anything else falls through to the normal sign-in path
-  unchanged. `#loginEmail` is `type="text"`, not `type="email"` — a plain
-  `type="email"` input's built-in browser validation rejects a bare value
-  like `admin` (no `@`) and silently blocks the form from ever submitting,
-  which would make this impossible to trigger at all. Don't change it back
-  to `type="email"` without solving that.
+  `email.toLowerCase() === 'admin@sadhana.local' && password === 'SriGuruBabaJi'`
+  *before* calling the normal `signInWithEmailAndPassword` — if it matches,
+  it signs into the dedicated admin account instead (see below); anything
+  else falls through to the normal sign-in path unchanged. `#loginEmail` is
+  back to `type="email"` (an earlier `admin`-only username needed
+  `type="text"` to bypass the browser's built-in email-format validation;
+  `admin@sadhana.local` is a real email shape, so that workaround is gone).
+- **It's a real Firebase Auth account, not Anonymous Auth.** The first time
+  anyone signs in with these exact credentials, `signInWithEmailAndPassword`
+  fails (the account doesn't exist yet in a fresh Firebase project) and the
+  handler falls back to `createUserWithEmailAndPassword` to create it once;
+  every time after that, the normal sign-in succeeds directly. This needs
+  **no extra Firebase console setup** beyond Email/Password already being
+  enabled (step 2 in README.md) — unlike the Anonymous-Auth version this
+  replaced, which required separately enabling that provider and failed
+  with a confusing "isn't enabled" error until the user did.
 - **The credential check cannot be a real Firestore-enforced gate.** It's
   plain client-side JavaScript — Firestore security rules have no way to
   see what was typed into a page's form. For the Admin view to actually be
@@ -446,41 +457,27 @@ this — go through the normal login form, nothing else) — it is not a
   null` rules with an email allowlist check (`request.auth.token.email in
   [...]`) — this was scoped and explained at the time, not silently
   deferred.
-- **No separate sign-in step, on request — via Anonymous Auth.** Firestore
-  still needs *some* real session (`request.auth != null`) to allow the
-  reads, so the handler calls `signInAnonymously(auth)` the instant the
-  admin credentials match, then dispatches a `sadhana-admin-ready`
-  CustomEvent that `js/app.js` listens for to open the dashboard — one step,
-  no separate "now sign in for real" prompt. This widens the trade-off
-  above one step further: since `request.auth != null` is the *only* bar
-  Firestore's rules check, and anonymous sign-in requires no
-  email/password/signup at all, **any visitor who loads the site — with no
-  account, ever — can reach the same full cross-account read access**,
-  either through this credential check or by opening the browser console
-  and calling `signInAnonymously()` themselves. This was raised with the
-  user directly as a further widening beyond the already-approved
-  any-signed-in-account model, alongside two alternatives (a hardcoded
-  admin Firebase credential embedded in the client code — comparable
-  exposure, no new provider to enable — or keeping a real-account
-  requirement but streamlining that step); anonymous sign-in was the one
-  chosen. **Requires the "Anonymous" sign-in provider enabled in the
-  Firebase console** (Authentication → Sign-in method) — without it,
-  `signInAnonymously()` rejects with `auth/operation-not-allowed`, which the
-  handler catches and surfaces as a specific "enable Anonymous sign-in"
-  message (via the normal `#authError` element) rather than a generic
-  failure.
-- **`onAuthStateChanged` ignores this anonymous session.** It would
-  otherwise treat *any* signed-in user as a normal login — creating a
-  workspace for them, flipping to the user-select screen, dispatching
-  `sadhana-auth-ready` — none of which makes sense for a session that
-  exists only to satisfy a Firestore rule check. It short-circuits with `if
-  (user.isAnonymous) return;` right at the top of that handler, before any
-  of that runs, leaving screen management entirely to app.js's
-  `sadhana-admin-ready` listener. `closeAdminScreen()` correspondingly
-  checks `auth.currentUser && !auth.currentUser.isAnonymous` before treating
-  "signed in" as "show the user-select screen" — an anonymous-only session
-  (or no session) falls through to the auth screen instead, which is where
-  nothing-signed-in visitors belong.
+- **Using a real, guessable admin account is a narrower version of the same
+  trade-off, not a new one.** Unlike a made-up Anonymous session, the admin
+  account here is a normal, permanent `users/{uid}` doc like any other — so
+  anyone who signs in with `admin@sadhana.local` / `SriGuruBabaJi` (this exact,
+  publicly-documented pair) gets the same session a legitimate admin would,
+  indistinguishable from it at the Firestore level. This is no *broader*
+  than the "any signed-in account can read everything" trade-off already
+  approved above — it doesn't require even the trivial step of creating an
+  account, since these exact credentials are known — so treat it with the
+  same care: don't relax `firestore.rules` further without revisiting this
+  with the user, and don't assume this specific account name is a secret.
+- **`onAuthStateChanged` routes this account to Admin, not the normal
+  flow.** It checks `user.email && user.email.toLowerCase() ===
+  'admin@sadhana.local'` right at the top of the handler (before the normal
+  `attachWorkspace()` / user-select-screen logic runs) and dispatches a
+  `sadhana-admin-ready` CustomEvent instead — this account has no workspace
+  or profile of its own and must never run through the normal signup/join
+  flow. `js/app.js`'s `sadhana-admin-ready` listener sets a module-level
+  `adminSessionActive` flag (rather than duplicating the email string from
+  auth-ui.js) so `closeAdminScreen()` knows to fall back to the sign-in
+  screen, not the user-select screen, when exiting.
 - **Journal is included, on request.** The Journal module's own PIN lock
   (`journalPinHash`/`isJournalLocked()`) only gates the Journal *tab* inside
   a normal profile session — it does nothing to stop the Admin view from
@@ -520,12 +517,11 @@ them, they communicate via `document.dispatchEvent(new CustomEvent(...))`:
   app.js stops any running timers/counters and clears in-memory state.
 - `sadhana-signed-out` — dispatched once Firebase confirms the user is
   signed out.
-- `sadhana-admin-ready` — dispatched after the login form's admin
-  credential check passes and the resulting anonymous sign-in succeeds.
-  app.js listens and calls `openAdminScreen()`. Deliberately **not** folded
-  into `sadhana-auth-ready`, since an anonymous Admin session has no
-  workspace/profile and must never run through `initApp()`'s normal
-  profile-loading path.
+- `sadhana-admin-ready` — dispatched once `onAuthStateChanged` sees the
+  dedicated Admin account (`admin@sadhana.local`) signed in. app.js listens and
+  calls `openAdminScreen()`. Deliberately **not** folded into
+  `sadhana-auth-ready`, since the Admin account has no workspace/profile
+  and must never run through `initApp()`'s normal profile-loading path.
 
 If you add new cross-module behavior, prefer adding another named event over
 importing between auth-ui.js and app.js — it keeps the auth flow swappable
@@ -681,17 +677,18 @@ browser:
     piece of data that should NOT be workspace-scoped, unlike everything
     else.
 18. Admin — gate: confirm there is no Admin button/icon anywhere in the UI.
-    On the ordinary sign-in form, type username `admin` with an incorrect
-    password and confirm it's rejected exactly like any other failed
-    sign-in (no hint that "admin" is special). With username `admin` and
-    password `SriGuruBabaJi`, confirm the Admin dashboard opens directly —
-    no separate sign-in step or second prompt. If "Anonymous" isn't yet
-    enabled as a sign-in provider in the Firebase console, confirm this
-    instead shows the specific "enable Anonymous sign-in" error (via the
-    normal sign-in error area) rather than a generic failure. "Exit Admin"
-    from this state returns to the sign-in screen (not an empty
-    profile-picker screen). Confirm a normal account's email/password
-    sign-in still works unaffected.
+    On the ordinary sign-in form, type email `admin@sadhana.local` with an
+    incorrect password and confirm it's rejected exactly like any other
+    failed sign-in ("Email or password is incorrect", no hint that this
+    email is special). With `admin@sadhana.local` / `SriGuruBabaJi`, confirm
+    the Admin dashboard opens directly — no separate sign-in step or second
+    prompt — the *first* time this is tried against a fresh Firebase
+    project (the account gets auto-created) and every time after that
+    (normal sign-in). "Exit Admin" from this state returns to the sign-in
+    screen (not an empty profile-picker screen). Confirm a normal account's
+    email/password sign-in still works unaffected, and that a real user
+    signing up with the email `admin@sadhana.local` themselves is not possible
+    (it already exists once anyone has triggered the Admin path once).
 19. Admin — dashboard: confirm every account that has ever signed up appears
     in the account list (not just the current one). Select an account and
     confirm its profiles list correctly, and that switching between

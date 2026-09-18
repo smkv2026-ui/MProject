@@ -29,15 +29,11 @@ accounts or provision infrastructure for you.
 
 In the Firebase console: **Build ▸ Authentication ▸ Sign-in method**, enable:
 
-- **Email/Password**
+- **Email/Password** — also what the Admin dashboard (see below) uses; no
+  extra provider needed for it.
 - **Google**
-- **Anonymous** — needed only for the Admin dashboard (see below): signing
-  in on the ordinary form as `admin` signs in anonymously behind the
-  scenes so Firestore will allow the read, with no separate sign-in step.
-  Skip this one if you don't want the Admin feature to work at all —
-  everything else in the app works without it.
 
-(You can skip Email/Password or Google if you prefer — the corresponding UI
+(You can skip Google if you prefer — the corresponding UI
 on the sign-in screen will just fail gracefully if you skip a provider, but
 enabling both matches what's built.)
 
@@ -130,19 +126,19 @@ its scope covers the whole app.
   and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
   shared device.
 - **Admin** has no button or icon anywhere — sign in on the normal sign-in
-  form with username `admin` and password `SriGuruBabaJi` and it opens a
-  dashboard listing every account ever created on the app, letting you
-  drill into any account's profiles and their full data, Journal included.
-  No separate step: entering those credentials signs you in anonymously
-  behind the scenes (needs the "Anonymous" provider enabled, step 2) and
-  opens straight to the dashboard. **Important:** because a credential
-  check typed into a web page's form can't be verified by Firestore's
-  security rules, and anonymous sign-in requires no account at all, this
-  means **any visitor to the site can reach this same cross-account read
-  access** — with those credentials, or by calling Firebase's sign-in API
-  directly. See "Admin module" in CLAUDE.md for the full trade-off (and
-  the alternatives that were considered) before changing who
-  can access this feature.
+  form with email `admin@sadhana.local` and password `SriGuruBabaJi` and it
+  opens a dashboard listing every account ever created on the app, letting
+  you drill into any account's profiles and their full data, Journal
+  included. The very first time, this auto-creates that account (no extra
+  Firebase console setup needed — it's just Email/Password, already
+  enabled); every time after that it's a normal sign-in. **Important:**
+  because this credential check is just JavaScript in the page, not
+  something Firestore's security rules can verify, **any visitor to the
+  site who knows this exact email/password can reach this same
+  cross-account read access** — or bypass the form entirely and query
+  Firestore directly once signed in some other way. See "Admin module" in
+  CLAUDE.md for the full trade-off (and the alternatives that were
+  considered) before changing who can access this feature.
 
 ## Project layout
 

@@ -9,8 +9,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
-  sendPasswordResetEmail,
-  signInAnonymously
+  sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 import {
   setActiveWorkspace,
@@ -73,12 +72,16 @@ function updateJoinCodeVisibility() {
 
 /* ---------- Sign in ---------- */
 // Admin dashboard (see "Admin module" in CLAUDE.md): there is no separate
-// Admin UI — signing in with this exact username/password on the ordinary
-// sign-in form opens it instead of a normal account. The check is entirely
-// client-side (Firestore rules can't see what was typed into a page), so
-// this is a UI convenience, not a real access boundary — see CLAUDE.md for
-// the full trade-off before changing who can reach this.
-const ADMIN_USERNAME = "admin";
+// Admin UI — signing in with this exact email/password on the ordinary
+// sign-in form opens it instead of a normal account. It's a real Firebase
+// Auth account (auto-created the first time anyone signs in with it, since
+// it needs no manual setup beyond Email/Password already being enabled —
+// unlike an earlier version of this that used Anonymous sign-in and
+// required enabling that separately). The check is entirely client-side
+// (Firestore rules can't see what was typed into a page), so this is a UI
+// convenience, not a real access boundary — see CLAUDE.md for the full
+// trade-off before changing who can reach this.
+const ADMIN_EMAIL = "admin@sadhana.local";
 const ADMIN_PASSWORD = "SriGuruBabaJi";
 
 $("loginForm").addEventListener("submit", async e => {
@@ -88,20 +91,17 @@ $("loginForm").addEventListener("submit", async e => {
   const password = $("loginPassword").value;
   $("loginSubmit").disabled = true;
   try {
-    if (email.toLowerCase() === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-      // Firestore's rules still require request.auth != null for every
-      // read, so this needs *some* real session — sign in anonymously
-      // rather than as a normal account (no workspace/profile of its own,
-      // and onAuthStateChanged below ignores it for the usual sign-in flow).
+    if (email.toLowerCase() === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       try {
-        await signInAnonymously(auth);
+        await signInWithEmailAndPassword(auth, ADMIN_EMAIL, ADMIN_PASSWORD);
       } catch (err) {
-        showError(err.code === "auth/admin-restricted-operation" || err.code === "auth/operation-not-allowed"
-          ? "Anonymous sign-in isn't enabled on this Firebase project yet — enable it under Authentication → Sign-in method, then try again."
-          : friendlyAuthError(err));
-        return;
+        // First time this exact account is used: it doesn't exist yet in
+        // this Firebase project, so create it once. From then on it's a
+        // normal account and this branch won't run again.
+        await createUserWithEmailAndPassword(auth, ADMIN_EMAIL, ADMIN_PASSWORD);
       }
-      document.dispatchEvent(new CustomEvent("sadhana-admin-ready"));
+      // onAuthStateChanged (below) recognizes this email and routes
+      // straight to the Admin dashboard instead of the normal sign-in flow.
       return;
     }
     await signInWithEmailAndPassword(auth, email, password);
@@ -232,14 +232,16 @@ onAuthStateChanged(auth, async user => {
     document.dispatchEvent(new CustomEvent("sadhana-signed-out"));
     return;
   }
-  // An anonymous session exists only to satisfy Firestore's request.auth !=
-  // null check for the Admin dashboard (see js/app.js "Admin" — it signs in
-  // anonymously behind the password prompt rather than requiring a real
-  // account first). It has no profile, no workspace, and isn't a "real"
-  // sign-in from this screen's point of view, so skip the normal
-  // attach-a-workspace / show-user-select-screen flow entirely and let
-  // app.js's Admin code manage the screen instead.
-  if (user.isAnonymous) return;
+  // The Admin account (see ADMIN_EMAIL above and "Admin module" in
+  // CLAUDE.md) isn't a "real" sign-in from this screen's point of view —
+  // it has no profile or workspace of its own. Route it to the Admin
+  // dashboard instead of the normal attach-a-workspace /
+  // show-user-select-screen flow, and let app.js's Admin code manage the
+  // screen from here.
+  if (user.email && user.email.toLowerCase() === ADMIN_EMAIL) {
+    document.dispatchEvent(new CustomEvent("sadhana-admin-ready"));
+    return;
+  }
   try {
     if (!getActiveWorkspace()) {
       const joinCode = pendingJoinCode;

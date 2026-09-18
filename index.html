@@ -36,11 +36,7 @@
       </div>
 
       <form class="auth-form" id="loginForm">
-        <!-- type="text" (not "email"): the Admin dashboard signs in via
-             this same field with the username "admin" (see js/auth-ui.js
-             and "Admin module" in CLAUDE.md), which type="email" would
-             block the browser from ever submitting. -->
-        <input type="text" id="loginEmail" placeholder="Email" autocomplete="email" required>
+        <input type="email" id="loginEmail" placeholder="Email" autocomplete="email" required>
         <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" required>
         <button class="pill" type="submit" id="loginSubmit">Sign in</button>
         <button type="button" class="add-link" id="forgotPasswordBtn">Forgot password?</button>
