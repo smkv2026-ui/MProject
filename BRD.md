@@ -484,3 +484,85 @@ technical why)
 - With a PIN set, the Journal tab requires it after every switch-user or
   sign-out, and never after simply switching tabs within the same
   session.
+
+# Addendum D — Global Guru's Teachings, Admin Module
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-18 |
+
+## D.1 Objective
+
+Two follow-on requests: make the Guru's Teachings library truly global
+(a teaching added anywhere shows up for every account, including a brand
+new signup, not just members of the same household workspace); and add a
+password-gated Admin view, reachable from a top-right entry point, listing
+every account ever created on the app with the ability to drill into a
+selected account's profile details.
+
+## D.2 Scope delivered
+
+**Global Guru's Teachings**: moved from a per-workspace `kv` document to a
+new top-level `globalKv` Firestore collection, readable and writable by any
+signed-in account. No UI or feature change to Guru's Teachings itself —
+the photo handling, teaching CRUD, and daily quote card all work exactly as
+before; only where the data lives (and who it's shared with) changed.
+
+**Admin module**: a "🛡 Admin" entry point on the auth screen, the
+user-select screen, and the main app's header opens a password prompt
+(password: `SriGuruBabaJi`). On success (and with an active sign-in — the
+underlying data reads require Firebase Auth regardless of the password),
+it opens a dashboard listing every account (from the `users` collection)
+by email and shared-space code. Selecting an account loads its workspace's
+profile list; selecting a profile loads that profile's full data —
+practice/japa totals, reading/learning progress, custom activities,
+long-term goals, and the complete Journal (every date, every field,
+including structured reflections) — per the user's explicit choice to
+include Journal contents rather than exclude them.
+
+## D.3 The security trade-off (put to the user directly, not decided unilaterally)
+
+Firestore security rules run entirely server-side and have no way to see
+what was typed into the page's password field — that check only exists in
+the browser. So making the Admin view's data actually loadable required
+choosing between two real options, and both were put to the user as an
+explicit choice before writing any rule changes:
+
+1. **Open to any signed-in account** (chosen): Firestore allows any
+   authenticated user to *read* every account's `users` doc and every kv
+   document in every workspace. This matches the request as stated — anyone
+   who knows the password sees everything — but as a direct consequence,
+   any account that ever signs up for the app (whether or not they know
+   the Admin password, or ever open the Admin UI at all) can technically
+   read every other household's profile names, tracker data, and Journal
+   entries directly via the Firestore SDK, bypassing the password and the
+   UI entirely. `write` access was kept restricted to each account's own
+   `users` doc and their own workspace's data, so a stranger can read but
+   never modify or delete another household's information.
+2. **Restrict to specific admin account(s)** (not chosen): Firestore rules
+   check the signed-in account's email against an allowlist, so only
+   pre-approved Google accounts could ever load this data server-side,
+   with the password as a second factor on top. Not selected.
+
+This is documented here, in CLAUDE.md ("Admin module"), and in
+`firestore.rules` itself so the trade-off is visible wherever someone might
+next touch this code — it should not be "discovered" later as if it were
+an oversight, and should not be silently tightened or loosened without
+checking with the user first.
+
+## D.4 Success criteria
+
+- A Guru's Teaching added from any account appears for every other account,
+  including one that just signed up and hasn't joined any existing
+  household's shared space.
+- The Admin password gate rejects an incorrect password, and rejects a
+  correct password if the browser has no active Firebase Auth session
+  (asking the user to sign in first rather than failing silently).
+- With the correct password and an active session, the Admin dashboard
+  lists every account that has ever signed up, and selecting one correctly
+  loads that account's profiles and, per profile, its full tracker data
+  including Journal entries.
+- Regular (non-Admin) app usage is functionally unchanged: no new
+  permission prompts, no behavior difference for someone who never opens
+  the Admin view.

@@ -32,6 +32,9 @@ js/firebase-init.js      Initializes the Firebase app, Auth, and Firestore
 js/cloud-store.js        Firestore-backed replacement for the old
                          `window.storage.get/set(key, shared)` API, scoped to
                          the signed-in user's "workspace" (see Data model).
+                         Also exposes global (cross-workspace) kv helpers
+                         and the read-only, cross-account helpers backing
+                         the Admin module (see below).
 js/auth-ui.js            Sign in / create account / Google sign-in / password
                          reset / sign-out / workspace invite-code UI. Talks to
                          app.js only via DOM CustomEvents (see Event contract)
@@ -71,15 +74,22 @@ README.md                Setup and deployment instructions.
 users/{uid}                    { email, workspaceId, updatedAt }
 workspaces/{code}              { members: [uid, ...], createdAt, createdBy }
 workspaces/{code}/kv/{key}     { value: "<JSON string>", updatedAt }
+globalKv/{key}                 { value: "<JSON string>", updatedAt }
 ```
 
 A "workspace" is the shared space a household joins together via a short
 invite code (shown in the account panel, ⚙ icon). Every profile
-(`sadhana-users`), each profile's tracker log (`sadhana-data-<profileId>`),
-and the shared Guru's Teachings library (`sadhana-gurus`) are stored as `kv`
-documents under the caller's current workspace — same keys the original code
-used, just persisted centrally instead of nowhere. This is what makes data
-shared across every device signed into (or invited into) that workspace.
+(`sadhana-users`) and each profile's tracker log (`sadhana-data-<profileId>`)
+are stored as `kv` documents under the caller's current workspace — same
+keys the original code used, just persisted centrally instead of nowhere.
+This is what makes data shared across every device signed into (or invited
+into) that workspace.
+
+`globalKv` is a separate, top-level collection for data meant to be shared
+across **every** workspace/account, not just one household's. The only
+thing stored there today is the Guru's Teachings library (`sadhana-gurus`,
+same key name as before) — see "Guru's Teachings is global" below for why
+it moved out of per-workspace storage.
 
 Do not confuse a Firebase Auth **account** (one human, one login) with an
 in-app **profile** (the Aditya/Radhika-style cards on the user-select
@@ -368,6 +378,90 @@ below). `data.journalGoals` is a separate flat, manually-maintained array
   sections; a dedicated mode/UI for it is a future addition, not built
   here).
 
+## Guru's Teachings is global
+
+Originally the Guru's Teachings library (`sadhana-gurus`) was a per-workspace
+`kv` document, like every other tracker key — shared across every device in
+one household's workspace, but not across households. That was changed to a
+true cross-workspace shared library: a teaching added from any profile, in
+any workspace, now shows up for every signed-in account, including a brand
+new signup that hasn't joined anyone's workspace.
+
+- Storage moved from `workspaces/{code}/kv/sadhana-gurus` to
+  `globalKv/sadhana-gurus` (same key name, same JSON shape — just a
+  different collection). `js/cloud-store.js` exposes this as
+  `globalGet`/`globalSet`/`subscribeGlobalKey`, parallel to the existing
+  `cloudGet`/`cloudSet`/`subscribeKey` but never scoped to
+  `setActiveWorkspace()`'s current workspace.
+- `loadGurus()`/`saveGurus()`/the `unsubGurus` live-listener in `initApp()`
+  (js/app.js) were switched from the workspace-scoped functions to the
+  global ones — no other change to the Guru's Teachings feature itself
+  (photo handling, teaching CRUD, the daily quote card) was needed, since
+  they all go through those same three functions.
+- Firestore rule: `globalKv/{key}` allows any signed-in user to read and
+  write. Unlike the Admin trade-off below, this one has no meaningful
+  downside — the library was always meant to be a shared spiritual-quote
+  resource, not private data, so making it writable by any signed-in
+  account (instead of just workspace members) matches its purpose.
+
+## Admin module
+
+A password-gated dashboard (top-right "🛡 Admin" entry point on the auth
+screen, the user-select screen, and the main app header) that lists every
+account ever created on the app and, per account, every profile in its
+workspace with that profile's full tracker data — Journal entries included.
+This was built at the user's explicit request, including an explicit choice
+between two possible security models (see below) — it is not a "hidden"
+feature and its trade-offs are deliberate, not an oversight.
+
+- **The password cannot be a real Firestore-enforced gate.** `ADMIN_PASSWORD`
+  (`'SriGuruBabaJi'`, in `js/app.js`) is checked entirely client-side —
+  Firestore security rules have no way to see what was typed into a page's
+  UI. For the Admin view to actually be able to load every account's data,
+  `firestore.rules` had to grant `read` on every `users/{uid}` doc and every
+  `workspaces/{code}/kv/{key}` doc to **any signed-in user**, not just
+  workspace members or whoever knows the password. Concretely: any account
+  that signs up for this app can, via direct Firestore SDK calls (bypassing
+  the UI and the password entirely), read every other household's profile
+  names, tracker logs, and Journal entries. `write` stays restricted to a
+  user's own `users` doc and their own workspace's `kv` — a signed-in
+  stranger can read but never modify another household's data. This was put
+  to the user directly as a choice (open-to-any-signed-in-account vs.
+  restricting real access to specific admin email(s) via Firestore rules)
+  and the simpler, broader-access option was chosen explicitly. If stronger
+  isolation is ever needed, the fix is to replace the blanket `read: if
+  request.auth != null` rules with an email allowlist check
+  (`request.auth.token.email in [...]`) — this was scoped and explained at
+  the time, not silently deferred.
+- **Journal is included, on request.** The Journal module's own PIN lock
+  (`journalPinHash`/`isJournalLocked()`) only gates the Journal *tab* inside
+  a normal profile session — it does nothing to stop the Admin view from
+  reading `data.journal` directly out of the fetched profile blob, exactly
+  like every other field. This was an explicit choice (the alternative —
+  excluding Journal from Admin — was offered and not taken) so don't treat
+  it as a gap to "fix" later without checking with the user first.
+- **Data flow, no new data source.** `adminListAllUsers()` (a `getDocs` over
+  the whole `users` collection) and `adminGetWorkspaceKv(workspaceCode, key)`
+  (a direct `getDoc` on an arbitrary workspace's `kv` doc, not scoped to
+  `setActiveWorkspace()`) live in `js/cloud-store.js` next to the normal
+  per-workspace helpers. `js/app.js`'s Admin code reuses the *exact* same
+  `normalizeData()`/`defaultData()`/rendering helpers (`escapeHtml`,
+  `fmtShort`, `categoryLabel`, `JOURNAL_RATING_KEYS`,
+  `JOURNAL_ENTRY_FIELD_DEFS`, `journalEntryTypeMeta`) as the profile's own
+  views — there is no separate Admin-specific data model, just a read-only
+  render of the same profile blob any device would load for that profile.
+- **Requires a live Firebase Auth session first.** Firestore's rules require
+  `request.auth != null` for these reads, so entering the correct password
+  while signed out shows "Sign in with any account first, then reopen
+  Admin" rather than silently failing. This is why the Admin entry point
+  also exists on the auth screen: as a shortcut to open the modal, not a way
+  to bypass sign-in — the underlying reads still need a real session.
+- **Exiting Admin restores the right screen.** `closeAdminScreen()` checks
+  `currentUser` (an in-app profile is selected → back to the app screen) and
+  `auth.currentUser` (signed in but no profile selected → user-select
+  screen; otherwise → the auth screen) rather than assuming which screen was
+  open before Admin — Admin can be entered from any of the three.
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -509,6 +603,23 @@ browser:
     an incorrect PIN shows an error and stays locked. Switch profiles (or
     sign out and back in) and confirm the Journal is locked again on
     return. Remove the PIN and confirm the tab opens directly.
+17. Guru's Teachings is global: add a teaching from one account/workspace,
+    then sign up as a brand-new account (a new workspace, not joined via
+    invite code) and confirm the same teaching appears — this is the one
+    piece of data that should NOT be workspace-scoped, unlike everything
+    else.
+18. Admin — gate: click "🛡 Admin" (auth screen, user-select screen, or the
+    app header) with an incorrect password and confirm it's rejected. With
+    the correct password (`SriGuruBabaJi`) but signed out, confirm it asks
+    you to sign in first rather than opening anything. Signed in with the
+    correct password, confirm the Admin dashboard opens.
+19. Admin — dashboard: confirm every account that has ever signed up appears
+    in the account list (not just the current one). Select an account and
+    confirm its profiles list correctly, and that switching between
+    profiles reloads that profile's own summary stats and full Journal
+    content (including structured reflections). "Exit Admin" returns to
+    whichever screen makes sense (the app screen if a profile was open
+    before entering Admin, otherwise the user-select or auth screen).
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

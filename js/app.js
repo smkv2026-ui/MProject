@@ -1,5 +1,10 @@
 import { CHAKRA_HTML_B64 } from "./chakra-data.js";
-import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
+import {
+  cloudGet, cloudSet, subscribeKey,
+  globalGet, globalSet, subscribeGlobalKey,
+  adminListAllUsers, adminGetWorkspaceKv
+} from "./cloud-store.js";
+import { auth } from "./firebase-init.js";
 
   const SANDHYAS = ['morning','afternoon','evening'];
   const SANDHYA_LABEL = { morning:'Morning sandhyā', afternoon:'Afternoon sandhyā', evening:'Evening sandhyā', any:'Daily (no sandhyā)' };
@@ -130,7 +135,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
 
   async function loadGurus(){
     try{
-      const res = await cloudGet(GURUS_KEY);
+      const res = await globalGet(GURUS_KEY);
       if(res && res.value){
         const arr = JSON.parse(res.value);
         if(Array.isArray(arr)) return arr;
@@ -139,7 +144,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     return [];
   }
   async function saveGurus(){
-    try{ await cloudSet(GURUS_KEY, JSON.stringify(gurus)); }
+    try{ await globalSet(GURUS_KEY, JSON.stringify(gurus)); }
     catch(e){ console.error('save gurus failed', e); }
   }
   function findOrCreateGuru(name){
@@ -426,7 +431,7 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
       }catch(e){ /* ignore malformed remote value */ }
     });
     if(unsubGurus) unsubGurus();
-    unsubGurus = subscribeKey(GURUS_KEY, raw=>{
+    unsubGurus = subscribeGlobalKey(GURUS_KEY, raw=>{
       try{
         const arr = raw ? JSON.parse(raw) : [];
         if(Array.isArray(arr)){
@@ -3799,5 +3804,259 @@ import { cloudGet, cloudSet, subscribeKey } from "./cloud-store.js";
     renderLearning();
     renderTodaySchedule();
     renderStatsStrip();
+  }
+
+  /* ---------- Admin ----------
+     A password-gated dashboard listing every account (users/{uid} doc)
+     ever created, and — per account — every profile in its workspace with
+     full tracker data, Journal included. The password (ADMIN_PASSWORD)
+     only gates the button in this UI; it cannot gate the underlying
+     Firestore reads (rules can't see what was typed into a page), so
+     firestore.rules deliberately allows any signed-in account to read
+     every account's users document and every kv document in every
+     workspace — see the comment there and "Admin module" in CLAUDE.md for
+     why this was an explicit, user-approved trade-off rather than an
+     oversight. Write access stays restricted to each account's own data. */
+  const ADMIN_PASSWORD = 'SriGuruBabaJi';
+  let adminAccounts = [];
+  let adminSelectedUid = null;
+  let adminSelectedWorkspaceCode = null;
+  let adminSelectedWorkspaceUsers = [];
+  let adminSelectedProfileId = null;
+
+  function openAdminLoginModal(){
+    document.getElementById('adminPasswordInput').value = '';
+    document.getElementById('adminLoginError').style.display = 'none';
+    document.getElementById('adminLoginModal').classList.add('open');
+    setTimeout(()=>document.getElementById('adminPasswordInput').focus(), 50);
+  }
+  function closeAdminLoginModal(){
+    document.getElementById('adminLoginModal').classList.remove('open');
+  }
+
+  async function attemptAdminLogin(){
+    const pw = document.getElementById('adminPasswordInput').value;
+    const errEl = document.getElementById('adminLoginError');
+    if(pw !== ADMIN_PASSWORD){
+      errEl.textContent = 'Incorrect password.';
+      errEl.style.display = '';
+      return;
+    }
+    if(!auth.currentUser){
+      errEl.textContent = 'Sign in with any account first, then reopen Admin.';
+      errEl.style.display = '';
+      return;
+    }
+    closeAdminLoginModal();
+    await openAdminScreen();
+  }
+
+  ['adminBtnAuth','adminBtnUserSelect','adminBtnApp'].forEach(id=>{
+    const btn = document.getElementById(id);
+    if(btn) btn.addEventListener('click', openAdminLoginModal);
+  });
+  document.getElementById('adminLoginCancel').addEventListener('click', closeAdminLoginModal);
+  document.getElementById('adminLoginSubmit').addEventListener('click', attemptAdminLogin);
+  document.getElementById('adminPasswordInput').addEventListener('keydown', ev=>{ if(ev.key==='Enter') attemptAdminLogin(); });
+  document.getElementById('adminExitBtn').addEventListener('click', closeAdminScreen);
+
+  async function openAdminScreen(){
+    document.getElementById('authScreen').style.display = 'none';
+    document.getElementById('userSelectScreen').style.display = 'none';
+    document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('addActivityFab').style.display = 'none';
+    document.getElementById('adminScreen').style.display = '';
+    adminSelectedUid = null;
+    adminSelectedProfileId = null;
+    document.getElementById('adminAccountDetail').innerHTML = '<div class="empty-note">Select an account on the left to view its profiles.</div>';
+    const listEl = document.getElementById('adminAccountList');
+    listEl.innerHTML = '<div class="empty-note" style="padding:14px;">Loading accounts…</div>';
+    try{
+      adminAccounts = await adminListAllUsers();
+      adminAccounts.sort((a,b)=> (a.email||'').localeCompare(b.email||''));
+    }catch(e){
+      listEl.innerHTML = '<div class="empty-note" style="padding:14px;">Could not load accounts: '+escapeHtml(e.message)+'</div>';
+      return;
+    }
+    renderAdminAccountList();
+  }
+
+  function closeAdminScreen(){
+    document.getElementById('adminScreen').style.display = 'none';
+    if(currentUser){
+      document.getElementById('appScreen').style.display = '';
+      document.getElementById('addActivityFab').style.display = '';
+    } else if(auth.currentUser){
+      document.getElementById('userSelectScreen').style.display = '';
+      renderUserGrid();
+    } else {
+      document.getElementById('authScreen').style.display = '';
+    }
+  }
+
+  function renderAdminAccountList(){
+    const listEl = document.getElementById('adminAccountList');
+    if(adminAccounts.length===0){ listEl.innerHTML = '<div class="empty-note" style="padding:14px;">No accounts yet.</div>'; return; }
+    listEl.innerHTML = adminAccounts.map(a=>`
+      <div class="admin-account-row ${a.uid===adminSelectedUid?'on':''}" data-admin-uid="${a.uid}">
+        <div class="admin-account-email">${escapeHtml(a.email||'(no email)')}</div>
+        <div class="admin-account-meta">Shared space: ${escapeHtml(a.workspaceId||'—')}</div>
+      </div>`).join('');
+    listEl.querySelectorAll('[data-admin-uid]').forEach(row=>{
+      row.addEventListener('click', ()=> selectAdminAccount(row.dataset.adminUid));
+    });
+  }
+
+  async function selectAdminAccount(uid){
+    adminSelectedUid = uid;
+    adminSelectedProfileId = null;
+    renderAdminAccountList();
+    const detailEl = document.getElementById('adminAccountDetail');
+    const account = adminAccounts.find(a=>a.uid===uid);
+    if(!account || !account.workspaceId){
+      detailEl.innerHTML = '<div class="empty-note">This account has no shared space yet.</div>';
+      return;
+    }
+    adminSelectedWorkspaceCode = account.workspaceId;
+    detailEl.innerHTML = '<div class="empty-note">Loading profiles…</div>';
+    try{
+      const res = await adminGetWorkspaceKv(account.workspaceId, USERS_KEY);
+      const arr = res && res.value ? JSON.parse(res.value) : [];
+      adminSelectedWorkspaceUsers = Array.isArray(arr) ? arr : [];
+    }catch(e){
+      detailEl.innerHTML = '<div class="empty-note">Could not load this account\'s profiles: '+escapeHtml(e.message)+'</div>';
+      return;
+    }
+    renderAdminAccountDetail();
+  }
+
+  function renderAdminAccountDetail(){
+    const detailEl = document.getElementById('adminAccountDetail');
+    const account = adminAccounts.find(a=>a.uid===adminSelectedUid);
+    if(!account) return;
+    if(adminSelectedWorkspaceUsers.length===0){
+      detailEl.innerHTML = `
+        <div class="item-sub" style="margin-bottom:4px;">Account</div>
+        <div class="item-title" style="margin-bottom:14px;">${escapeHtml(account.email||'')}</div>
+        <div class="empty-note">This shared space has no profiles yet.</div>`;
+      return;
+    }
+    if(!adminSelectedProfileId || !adminSelectedWorkspaceUsers.some(u=>u.id===adminSelectedProfileId)){
+      adminSelectedProfileId = adminSelectedWorkspaceUsers[0].id;
+    }
+    const tabsHtml = adminSelectedWorkspaceUsers.map(u=>
+      `<button class="cal-tab ${u.id===adminSelectedProfileId?'on':''}" data-admin-profile="${u.id}">${escapeHtml(u.name)}</button>`
+    ).join('');
+    detailEl.innerHTML = `
+      <div class="item-sub" style="margin-bottom:4px;">Account</div>
+      <div class="item-title" style="margin-bottom:4px;">${escapeHtml(account.email||'')}</div>
+      <div class="empty-note" style="margin-bottom:14px;">Shared space: ${escapeHtml(account.workspaceId||'—')} · ${adminSelectedWorkspaceUsers.length} profile${adminSelectedWorkspaceUsers.length===1?'':'s'}</div>
+      <div class="cal-tabbar" style="flex-wrap:wrap; width:fit-content;">${tabsHtml}</div>
+      <div id="adminProfileDetail" style="margin-top:16px;"><div class="empty-note">Loading profile data…</div></div>
+    `;
+    detailEl.querySelectorAll('[data-admin-profile]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ adminSelectedProfileId = btn.dataset.adminProfile; renderAdminAccountDetail(); });
+    });
+    loadAdminProfileDetail();
+  }
+
+  async function loadAdminProfileDetail(){
+    const el = document.getElementById('adminProfileDetail');
+    if(!el) return;
+    let profileData;
+    try{
+      const res = await adminGetWorkspaceKv(adminSelectedWorkspaceCode, userStorageKey(adminSelectedProfileId));
+      profileData = res && res.value ? normalizeData(JSON.parse(res.value)) : defaultData();
+    }catch(e){
+      el.innerHTML = '<div class="empty-note">Could not load this profile\'s data: '+escapeHtml(e.message)+'</div>';
+      return;
+    }
+    el.innerHTML = renderAdminProfileSummary(profileData) + renderAdminProfileJournal(profileData);
+  }
+
+  function adminTotalKindSeconds(d, kind){
+    let total = 0;
+    Object.values(d.logs||{}).forEach(day=>{
+      if(day && day[kind]) Object.values(day[kind]).forEach(sMap=>Object.values(sMap).forEach(e=>total+=(e.seconds||0)));
+    });
+    return total;
+  }
+  function adminTotalPagesRead(d, bookId){
+    let total = 0;
+    Object.values(d.logs||{}).forEach(day=>{ if(day.reading && day.reading[bookId]) total += day.reading[bookId]; });
+    return total;
+  }
+
+  function renderAdminProfileSummary(d){
+    const totalPractice = adminTotalKindSeconds(d, 'practice');
+    const totalJapa = adminTotalKindSeconds(d, 'japa');
+    const booksHtml = (d.books||[]).map(b=>
+      `<div class="admin-stat-row"><span>${escapeHtml(b.title)}</span><b>${adminTotalPagesRead(d,b.id)} / ${b.pages} pages</b></div>`
+    ).join('') || '<div class="empty-note">No books.</div>';
+    const learningHtml = (d.learning||[]).map(t=>
+      `<div class="admin-stat-row"><span>${escapeHtml(t.title)}</span><b>${t.milestones.filter(m=>m.done).length} / ${t.milestones.length} milestones</b></div>`
+    ).join('') || '<div class="empty-note">No learning tracks.</div>';
+    const activitiesHtml = (d.activities||[]).map(a=>
+      `<div class="admin-stat-row"><span>${a.icon?escapeHtml(a.icon)+' ':''}${escapeHtml(a.name)}</span><b>${categoryLabel(a.category)}</b></div>`
+    ).join('') || '<div class="empty-note">No custom activities.</div>';
+    const goalsHtml = (d.journalGoals||[]).map(g=>`
+      <div class="journal-goal-row ${g.done?'done':''}">
+        <span class="journal-goal-cat">${escapeHtml(g.category)}</span>
+        <span class="journal-goal-title">${escapeHtml(g.title)}</span>
+      </div>`).join('') || '<div class="empty-note">No long-term goals.</div>';
+    return `
+      <div class="journal-section">
+        <div class="journal-section-title">📊 Summary (all time)</div>
+        <div class="admin-stat-row"><span>🧘 Practice</span><b>${fmtShort(totalPractice)}</b></div>
+        <div class="admin-stat-row"><span>📿 Japa</span><b>${fmtShort(totalJapa)}</b></div>
+      </div>
+      <div class="journal-section"><div class="journal-section-title">📖 Reading</div>${booksHtml}</div>
+      <div class="journal-section"><div class="journal-section-title">🎓 Learning</div>${learningHtml}</div>
+      <div class="journal-section"><div class="journal-section-title">🗓️ Custom Activities</div>${activitiesHtml}</div>
+      <div class="journal-section"><div class="journal-section-title">🧭 Long-Term Spiritual Goals</div>${goalsHtml}</div>
+    `;
+  }
+
+  function renderAdminProfileJournal(d){
+    const dates = Object.keys(d.journal||{}).sort().reverse();
+    if(dates.length===0){
+      return '<div class="journal-section"><div class="journal-section-title">📔 Journal</div><div class="empty-note">No journal entries.</div></div>';
+    }
+    const body = dates.map(dateStr=>{
+      const entry = d.journal[dateStr];
+      const label = new Date(dateStr+'T00:00:00').toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric', year:'numeric'});
+      const rows = [];
+      if(entry.sankalpa && (entry.sankalpa.text||entry.sankalpa.outcome||entry.sankalpa.learning)){
+        rows.push(['🌅 Sankalpa', [entry.sankalpa.text, entry.sankalpa.outcome, entry.sankalpa.learning].filter(Boolean).join(' — ')]);
+      }
+      if(entry.morning && (entry.morning.feeling||entry.morning.mantra||entry.morning.careful)){
+        rows.push(['☀️ Morning', [entry.morning.feeling, entry.morning.mantra, entry.morning.careful].filter(Boolean).join(' · ')]);
+      }
+      if(entry.thoughts) rows.push(['💭 Thoughts', entry.thoughts]);
+      if(entry.positivePointers) rows.push(['✨ Positive Pointers', entry.positivePointers]);
+      if(entry.negativePointers) rows.push(['⚠️ Negative Pointers', entry.negativePointers]);
+      if(entry.spiritualNotes) rows.push(['🪷 Spiritual Notes', entry.spiritualNotes]);
+      if(entry.gratitude && entry.gratitude.some(Boolean)) rows.push(['🙏 Gratitude', entry.gratitude.filter(Boolean).join(' · ')]);
+      if(entry.questionOfDay) rows.push(['❓ '+entry.questionOfDay, entry.questionAnswer || '(no answer)']);
+      if(entry.evening && Object.values(entry.evening).some(Boolean)){
+        rows.push(['🌙 Evening', [entry.evening.whatHappened, entry.evening.lostAwareness, entry.evening.remainedAware, entry.evening.improve].filter(Boolean).join(' · ')]);
+      }
+      if(entry.ratings){
+        const ratingText = JOURNAL_RATING_KEYS.map(r=> entry.ratings[r.key]!=null ? r.label+': '+entry.ratings[r.key] : null).filter(Boolean).join(' · ');
+        if(ratingText) rows.push(['📊 Ratings', ratingText]);
+      }
+      (entry.entries||[]).forEach(en=>{
+        const meta = journalEntryTypeMeta(en.type);
+        const fields = JOURNAL_ENTRY_FIELD_DEFS[en.type]||[];
+        const text = fields.map(([key,label])=> en[key] ? label+': '+en[key] : null).filter(Boolean).join(' · ');
+        rows.push([meta.icon+' '+meta.label, text || '(empty)']);
+      });
+      const rowsHtml = rows.map(([label,text])=>`<div><b>${escapeHtml(label)}:</b> ${escapeHtml(text)}</div>`).join('') || '<div class="empty-note">No content this day.</div>';
+      return `<div class="journal-timeline-day" style="cursor:default;">
+        <div class="journal-timeline-date">${label}</div>
+        <div class="journal-entry-body">${rowsHtml}</div>
+      </div>`;
+    }).join('');
+    return `<div class="journal-section"><div class="journal-section-title">📔 Journal (${dates.length} ${dates.length===1?'day':'days'})</div>${body}</div>`;
   }
 

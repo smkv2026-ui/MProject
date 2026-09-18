@@ -25,6 +25,7 @@
 
 <!-- Auth screen (sign in / create account) -->
 <div class="user-screen" id="authScreen">
+  <button class="admin-corner-btn" id="adminBtnAuth" type="button" title="Admin">🛡 Admin</button>
   <div class="user-screen-inner" style="max-width:380px;">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
@@ -64,6 +65,7 @@
 
 <!-- User select screen -->
 <div class="user-screen" id="userSelectScreen" style="display:none;">
+  <button class="admin-corner-btn" id="adminBtnUserSelect" type="button" title="Admin">🛡 Admin</button>
   <div class="user-screen-inner">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
@@ -104,6 +106,7 @@
       <button class="icon-btn" id="exportBtn" title="Export all data">↓</button>
       <button class="icon-btn" id="importBtn" title="Import all data">↑</button>
       <input type="file" id="importFileInput" accept="application/json" style="display:none;">
+      <button class="icon-btn" id="adminBtnApp" title="Admin">🛡</button>
     </div>
   </header>
 
@@ -365,6 +368,39 @@
     <div class="form-actions">
       <button class="pill ghost" id="signOutBtn" type="button">Sign out</button>
       <button class="pill ghost" id="accountCloseBtn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin password gate -->
+<div class="fullscreen" id="adminLoginModal">
+  <div class="account-panel">
+    <h3 class="serif" style="margin:0 0 14px;">Admin sign-in</h3>
+    <p class="empty-note" style="margin-bottom:14px;">Enter the admin password to view every account created on this app.</p>
+    <input type="password" id="adminPasswordInput" placeholder="Admin password" class="journal-pin-input" style="letter-spacing:normal;">
+    <div class="empty-note journal-unlock-error" id="adminLoginError" style="display:none;"></div>
+    <div class="form-actions" style="margin-top:10px;">
+      <button class="pill" id="adminLoginSubmit" type="button">Enter</button>
+      <button class="pill ghost" id="adminLoginCancel" type="button">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin dashboard: every account created on the app -->
+<div class="user-screen" id="adminScreen" style="display:none; align-items:flex-start;">
+  <div class="user-screen-inner" style="max-width:960px; text-align:left;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+      <div>
+        <h1 class="serif" style="margin:0;">Admin</h1>
+        <p class="user-tagline" style="margin:4px 0 0;">Every account created on this app</p>
+      </div>
+      <button class="pill ghost" id="adminExitBtn" type="button">Exit Admin</button>
+    </div>
+    <div class="admin-layout">
+      <div class="admin-account-list" id="adminAccountList"></div>
+      <div class="admin-account-detail" id="adminAccountDetail">
+        <div class="empty-note">Select an account on the left to view its profiles.</div>
+      </div>
     </div>
   </div>
 </div>

@@ -10,6 +10,8 @@
 import {
   doc,
   getDoc,
+  getDocs,
+  collection,
   setDoc,
   updateDoc,
   onSnapshot,
@@ -56,6 +58,45 @@ export function subscribeKey(key, onChange) {
   return onSnapshot(kvDoc(key), snap => {
     onChange(snap.exists() ? snap.data().value : null);
   }, err => console.error("subscribeKey failed for " + key, err));
+}
+
+// --- Global (cross-workspace) kv — data meant to be shared across every
+// account/household, not scoped to the caller's workspace. Currently used
+// for the Guru's Teachings library so a quote added by anyone shows up for
+// every signed-in account, new or existing. ---
+function globalDoc(key) {
+  return doc(db, "globalKv", key);
+}
+
+export async function globalGet(key) {
+  const snap = await getDoc(globalDoc(key));
+  if (!snap.exists()) return null;
+  return { value: snap.data().value };
+}
+
+export async function globalSet(key, value) {
+  await setDoc(globalDoc(key), { value, updatedAt: serverTimestamp() });
+}
+
+export function subscribeGlobalKey(key, onChange) {
+  return onSnapshot(globalDoc(key), snap => {
+    onChange(snap.exists() ? snap.data().value : null);
+  }, err => console.error("subscribeGlobalKey failed for " + key, err));
+}
+
+// --- Admin: read-only access across every account and workspace, backing
+// the in-app Admin view. See firestore.rules for why this is allowed for
+// any signed-in caller (a UI-only password gate, not a Firestore-enforced
+// one) and CLAUDE.md "Admin module" for the full rationale. ---
+export async function adminListAllUsers() {
+  const snap = await getDocs(collection(db, "users"));
+  return snap.docs.map(d => ({ uid: d.id, ...d.data() }));
+}
+
+export async function adminGetWorkspaceKv(workspaceCode, key) {
+  const snap = await getDoc(doc(db, "workspaces", workspaceCode, "kv", key));
+  if (!snap.exists()) return null;
+  return { value: snap.data().value };
 }
 
 function randomCode(len = 6) {

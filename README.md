@@ -94,6 +94,9 @@ its scope covers the whole app.
   Guru's Teachings, the fullscreen japa counter, Chakra Dharana, theme
   toggle, and JSON export/import — works exactly as it did before, except
   it now actually persists, and persists to everyone in your shared space.
+  **Guru's Teachings is the one exception to "shared space" scoping** — a
+  teaching added from any account shows up for every account on the app,
+  not just members of the same shared space.
 - **Routine Scheduler** (the **Routine** tab) lets you add your own daily
   activities beyond the four mandatory practices — set a time, duration,
   and repeat pattern, then drag them around a visual daily timeline or
@@ -121,6 +124,17 @@ its scope covers the whole app.
   plus a long-term goals checklist, a searchable Timeline of past entries,
   and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
   shared device.
+- **Admin** (🛡 top-right, on the sign-in screen, the user-select screen, or
+  the app header) is a password-gated view (password: `SriGuruBabaJi`) that
+  lists every account ever created on the app and lets you drill into any
+  account's profiles and their full data, Journal included. You must be
+  signed in with *some* account for it to load data (Firestore reads need
+  an active session) — the password alone isn't enough. **Important:**
+  because a password typed into a web page can't be verified by Firestore's
+  security rules, making this view work required allowing any signed-in
+  account to read every other account's data at the database level — see
+  "Admin module" in CLAUDE.md for the full trade-off before changing who
+  can access this feature.
 
 ## Project layout
 
