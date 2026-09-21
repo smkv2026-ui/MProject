@@ -869,3 +869,80 @@ for the technical why)
 - Switching profiles or signing out while a practice session is running
   stops it cleanly rather than leaving a timer or a looping video running
   in the background.
+
+# Addendum I — Chakra Dharana: Practice with Sounds Subtab
+
+## I.1 Objective
+
+Add a second, sound-driven practice mode to the existing Chakra Dharana
+tab, alongside (not replacing) the original visualizer: chanting each
+chakra's bīja mantra pulses that chakra with its associated color, and
+reaching a per-chakra repeat count locks that chakra "on" — brighter and
+steady — for the rest of the session.
+
+## I.2 Scope delivered
+
+- A subtab row (Visualizer / Practice with Sounds) inside the existing
+  Chakra Dharana fullscreen. The original visualizer (a sealed, pre-built
+  animation) is completely untouched — the new mode is a fully separate
+  panel that just shares the same fullscreen container and close button.
+- Seven chakra nodes, each pulsing on a recognized chant of its sound and
+  locking to a bright, permanently-lit state once its threshold is
+  reached, per the exact spec given:
+
+  | Chakra        | Sound                          | Color      | Chants to lock on |
+  |---------------|--------------------------------|------------|--------------------|
+  | Root          | Lam / Lum                      | Yellow     | 4                  |
+  | Sacral        | Vam / Vum                      | Silver     | 6                  |
+  | Solar Plexus  | Ram / Rum                      | Red        | 10                 |
+  | Heart         | Yam / Yum                      | Sky Blue   | 12                 |
+  | Throat        | Ham / Hum                      | Indigo     | 16                 |
+  | Third Eye     | Om                             | Milk White | 2                  |
+  | Crown         | Om Hreem Sri Gurubyho Namaha   | Rainbow    | 1 ("keep it on")   |
+
+- Detection via the browser's built-in Web Speech API (continuous
+  listening, auto-restarting itself), with a Start/Stop Listening control
+  and a Reset button that clears all counts and locked-on states.
+- A plain-language on-screen message when speech recognition isn't
+  supported by the browser, the page isn't served securely, or microphone
+  permission is denied — rather than the feature silently doing nothing.
+
+## I.3 Deliberate simplifications and trade-offs (see CLAUDE.md "Chakra
+Dharana — Practice with Sounds subtab" for the full reasoning)
+
+- **Best-effort recognition, not phonetic analysis.** Browser speech
+  recognition is built and tuned for natural English sentences, not
+  isolated one-syllable Sanskrit mantras — false negatives (a chant not
+  recognized) are expected and are a known limitation of the underlying
+  browser API, not a bug to chase indefinitely. Matching is a lenient
+  word-list per chakra (accepting common phonetic spellings) plus a
+  distinctive-token heuristic for the long crown phrase, rather than exact
+  string matching, specifically to reduce (not eliminate) that failure
+  rate.
+- **No historical logging.** Like Kriya Practice's loop/timer state, chant
+  counts and lock-on states are session-only (reset on Reset, tab-away,
+  switch-profile, or sign-out) — this is a live practice aid, not a new
+  data field in `data.journal` or elsewhere. Persisting mantra-practice
+  history is a real feature request for a future addendum, not something
+  quietly added here.
+- **One hit per utterance, first-match wins.** If a single recognized
+  phrase could plausibly match more than one chakra (unlikely in practice,
+  but possible with a garbled transcript), only the first match in
+  root-to-crown order registers, so multi-chakra double-counting from one
+  chant doesn't happen.
+
+## I.4 Success criteria
+
+- The Visualizer subtab's appearance and behavior are byte-for-byte
+  unchanged from before this addendum.
+- Chanting each chakra's bīja sound near a quiet microphone visibly pulses
+  that chakra's node in its specified color, and the chakra locks to a
+  bright, steady "on" state at exactly its specified repeat count — not
+  before, not requiring more after.
+- An unrelated spoken word does not falsely trigger any chakra.
+- Stopping listening, switching subtabs, closing the fullscreen, switching
+  profiles, or signing out all reliably stop the microphone from actively
+  recognizing speech — no listener keeps running into a context it
+  shouldn't.
+- A browser or context that can't support speech recognition shows a clear
+  explanation instead of a silently broken Start button.

@@ -155,6 +155,62 @@
   .fullscreen#chakraFullscreen{ padding:0; background:#030308; }
   .fullscreen#chakraFullscreen iframe{ position:absolute; inset:0; width:100%; height:100%; border:none; }
   .fullscreen#chakraFullscreen .fs-close{ position:absolute; top:14px; right:14px; z-index:2; }
+
+  /* Chakra Dharana: Visualizer / Practice with Sounds subtabs */
+  .chakra-subtabs{
+    position:absolute; top:14px; left:14px; z-index:2;
+    display:flex; gap:8px;
+  }
+  .chakra-subtab-btn{
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.28);
+    color:#eee; border-radius:999px; padding:7px 14px; font-size:12.5px;
+    cursor:pointer; backdrop-filter:blur(3px);
+  }
+  .chakra-subtab-btn.active{ background:var(--gold); color:#1a1400; border-color:var(--gold); font-weight:700; }
+  #chakraSoundPanel{
+    position:absolute; inset:0; padding:66px 16px 24px; overflow-y:auto;
+    display:flex; flex-direction:column; align-items:center;
+  }
+  .chakra-sound-wrap{ width:100%; max-width:460px; display:flex; flex-direction:column; gap:14px; align-items:center; }
+  .chakra-sound-status{ color:#eee; font-size:13.5px; text-align:center; min-height:18px; }
+  .chakra-sound-controls{ display:flex; gap:10px; }
+  .chakra-nodes{ display:flex; flex-direction:column-reverse; gap:12px; width:100%; align-items:stretch; }
+  .chakra-node{
+    display:flex; align-items:center; gap:14px; width:100%;
+    background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.14);
+    border-radius:14px; padding:10px 14px; transition:background 0.25s ease, border-color 0.25s ease;
+  }
+  .chakra-node-dot{
+    width:36px; height:36px; border-radius:50%; flex:none;
+    background:var(--dot-color,#666); opacity:0.35; filter:saturate(0.55) brightness(0.9);
+    transition:opacity 0.25s ease, filter 0.25s ease, box-shadow 0.25s ease;
+  }
+  .chakra-node.pulsing .chakra-node-dot{ animation:chakraPulse 0.6s ease; }
+  .chakra-node.locked-on{ background:rgba(255,255,255,0.09); border-color:var(--dot-color,rgba(255,255,255,0.4)); }
+  .chakra-node.locked-on .chakra-node-dot{
+    opacity:1; filter:saturate(1.15) brightness(1.2);
+    box-shadow:0 0 16px 4px var(--dot-color,#fff);
+  }
+  .chakra-node.locked-on .chakra-node-dot.rainbow{
+    background:conic-gradient(from 0deg,red,orange,yellow,green,blue,indigo,violet,red);
+    animation:chakraRainbowSpin 4s linear infinite;
+    box-shadow:0 0 20px 6px rgba(255,255,255,0.5);
+  }
+  @keyframes chakraPulse{
+    0%{ opacity:0.35; transform:scale(1); }
+    45%{ opacity:0.95; transform:scale(1.22); }
+    100%{ opacity:0.55; transform:scale(1); }
+  }
+  @keyframes chakraRainbowSpin{
+    from{ filter:hue-rotate(0deg) saturate(1.15) brightness(1.2); }
+    to{ filter:hue-rotate(360deg) saturate(1.15) brightness(1.2); }
+  }
+  .chakra-node-info{ flex:1; min-width:0; }
+  .chakra-node-name{ color:#fff; font-weight:700; font-size:13.5px; }
+  .chakra-node-sound{ color:#bbb; font-size:11.5px; margin-top:2px; }
+  .chakra-node-count{ color:var(--gold); font-size:12px; font-variant-numeric:tabular-nums; margin-top:3px; }
+  .chakra-node.locked-on .chakra-node-count{ color:#8effa0; font-weight:700; }
+  .chakra-sound-note{ color:#999; font-size:11px; text-align:center; }
   .fs-top{ position:absolute; top:0; left:0; right:0; display:flex; justify-content:space-between; align-items:center; padding:18px 20px; }
   .fs-timer{ font-size:14px; color:var(--ink-soft); font-variant-numeric:tabular-nums; }
   .fs-close{ background:none; border:1px solid var(--line); color:var(--ink); border-radius:50%; width:36px; height:36px; font-size:16px; cursor:pointer;}

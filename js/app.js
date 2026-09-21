@@ -411,6 +411,8 @@ import { auth } from "./firebase-init.js";
     journalUnlockedThisSession = false;
     kriyaUnlockedThisSession = false;
     stopKriyaPractice();
+    stopChakraListening();
+    resetChakraSoundState();
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -459,6 +461,8 @@ import { auth } from "./firebase-init.js";
     journalUnlockedThisSession = false;
     kriyaUnlockedThisSession = false;
     stopKriyaPractice();
+    stopChakraListening();
+    resetChakraSoundState();
     users = [];
     gurus = [];
     currentUser = null;
@@ -511,11 +515,194 @@ import { auth } from "./firebase-init.js";
   function openChakraFullscreen(){
     const frame = document.getElementById('chakraFrame');
     if(!frame.src){ frame.src = 'data:text/html;base64,' + CHAKRA_HTML_B64; }
+    setChakraSubtab('visualizer');
     document.getElementById('chakraFullscreen').classList.add('open');
   }
   document.getElementById('chakraClose').addEventListener('click', ()=>{
+    stopChakraListening();
     document.getElementById('chakraFullscreen').classList.remove('open');
   });
+
+  /* ---------- Chakra Dharana: Practice with Sounds ----------
+     A second subtab alongside the sealed Visualizer iframe (js/chakra-data.js
+     is a pre-built base64 blob — per CLAUDE.md it's never hand-edited), so
+     this is a wholly separate, fully-owned UI rather than a modification of
+     that blob. Uses the browser's Web Speech API to listen for chanted bīja
+     mantras; each recognized utterance pulses that chakra's node, and once a
+     chakra's chant-count threshold is reached it locks "on" (brighter,
+     steady) for the rest of this fullscreen session. Deliberately
+     best-effort: browser speech recognition is unreliable for isolated
+     Sanskrit syllables, is Chromium/Safari-only (no Firefox), and needs a
+     secure context (HTTPS or localhost) — the panel says so rather than
+     silently failing quietly. */
+  const CHAKRA_SOUND_DEFS = [
+    { key:'root',     name:'Root · Mūlādhāra',     sound:'Laṁ / Luṁ',                         color:'#e8c400', threshold:4,  words:['lam','lum','laam','lung'] },
+    { key:'sacral',   name:'Sacral · Svādhiṣṭhāna', sound:'Vaṁ / Vuṁ',                         color:'#c7c9d1', threshold:6,  words:['vam','vum','vaam','vung'] },
+    { key:'solar',    name:'Solar Plexus · Maṇipūra', sound:'Raṁ / Ruṁ',                       color:'#e03b3b', threshold:10, words:['ram','rum','raam','rung'] },
+    { key:'heart',    name:'Heart · Anāhata',      sound:'Yaṁ / Yuṁ',                          color:'#4fb8e8', threshold:12, words:['yam','yum','yaam','yung'] },
+    { key:'throat',   name:'Throat · Viśuddha',    sound:'Haṁ / Huṁ',                          color:'#5b4fd6', threshold:16, words:['ham','hum','haam','hung','hmm'] },
+    { key:'forehead', name:'Third Eye · Ājñā',     sound:'Om',                                 color:'#f6f6ee', threshold:2,  words:['om','aum','ohm'] },
+    { key:'crown',    name:'Crown · Sahasrāra',    sound:'Om Hreem Sri Gurubyho Namaha',       color:'rainbow', threshold:1,
+      words:['om hreem sri gurubyho namaha','om hreem shri gurubhyo namaha'],
+      tokens:['hreem','hrim','gurubyho','gurubhyo','gurubhyoh','namaha','namah'] }
+  ];
+
+  let chakraCounts = {};
+  let chakraLockedOn = {};
+  let chakraRecognition = null;
+  let chakraListening = false;
+
+  function resetChakraSoundState(){
+    chakraCounts = {}; chakraLockedOn = {};
+    CHAKRA_SOUND_DEFS.forEach(d=>{ chakraCounts[d.key] = 0; chakraLockedOn[d.key] = false; });
+    renderChakraNodes();
+  }
+
+  function renderChakraNodes(){
+    const wrap = document.getElementById('chakraNodes');
+    if(!wrap) return;
+    wrap.innerHTML = CHAKRA_SOUND_DEFS.map(d=>{
+      const locked = chakraLockedOn[d.key];
+      const count = chakraCounts[d.key];
+      const isRainbow = d.color === 'rainbow';
+      const styleAttr = isRainbow ? '' : ` style="--dot-color:${d.color};"`;
+      return `<div class="chakra-node${locked?' locked-on':''}" id="chakraNode-${d.key}"${styleAttr}>
+        <div class="chakra-node-dot${isRainbow?' rainbow':''}"></div>
+        <div class="chakra-node-info">
+          <div class="chakra-node-name">${escapeHtml(d.name)}</div>
+          <div class="chakra-node-sound">${escapeHtml(d.sound)}</div>
+          <div class="chakra-node-count">${locked ? 'On ✦' : `${count} / ${d.threshold}`}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function pulseChakraNode(key){
+    const el = document.getElementById('chakraNode-'+key);
+    if(!el) return;
+    el.classList.remove('pulsing');
+    void el.offsetWidth; // force reflow so re-adding the class restarts the animation
+    el.classList.add('pulsing');
+    setTimeout(()=>{ el.classList.remove('pulsing'); }, 600);
+  }
+
+  function registerChakraHit(def){
+    if(chakraLockedOn[def.key]){ pulseChakraNode(def.key); return; }
+    chakraCounts[def.key]++;
+    if(chakraCounts[def.key] >= def.threshold) chakraLockedOn[def.key] = true;
+    renderChakraNodes();
+    pulseChakraNode(def.key);
+  }
+
+  function normalizeChakraTranscript(text){
+    return text.toLowerCase().replace(/[^a-z\s]/g,'').replace(/\s+/g,' ').trim();
+  }
+
+  // One recognized utterance can only register one chakra hit — checked in
+  // fixed (root-to-crown) order, crown's long phrase first via its own
+  // 2-of-N distinctive-token heuristic since exact-phrase matching is
+  // unreliable for a 6-word Sanskrit phrase spoken through an English
+  // speech model.
+  function handleChakraTranscript(transcript){
+    const norm = normalizeChakraTranscript(transcript);
+    if(!norm) return;
+    const crown = CHAKRA_SOUND_DEFS[CHAKRA_SOUND_DEFS.length-1];
+    const crownTokenHits = crown.tokens.filter(t=>norm.includes(t)).length;
+    if(crownTokenHits >= 2 || crown.words.some(w=>norm.includes(w))){
+      registerChakraHit(crown);
+      return;
+    }
+    const tokens = norm.split(' ').filter(Boolean);
+    for(const def of CHAKRA_SOUND_DEFS){
+      if(def.key === 'crown') continue;
+      if(tokens.some(t=>def.words.includes(t))){
+        registerChakraHit(def);
+        return;
+      }
+    }
+  }
+
+  function getSpeechRecognitionCtor(){
+    return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  }
+
+  function updateChakraListenBtn(){
+    const btn = document.getElementById('chakraListenBtn');
+    if(!btn) return;
+    btn.textContent = chakraListening ? '⏹ Stop Listening' : '🎤 Start Listening';
+  }
+
+  function startChakraListening(){
+    const statusEl = document.getElementById('chakraSoundStatus');
+    const Ctor = getSpeechRecognitionCtor();
+    if(!Ctor){
+      if(statusEl) statusEl.textContent = 'Speech recognition isn\'t supported in this browser — try Chrome or Edge.';
+      return;
+    }
+    if(chakraRecognition) return;
+    chakraRecognition = new Ctor();
+    chakraRecognition.continuous = true;
+    chakraRecognition.interimResults = true;
+    chakraRecognition.lang = 'en-US';
+    chakraRecognition.onresult = ev=>{
+      for(let i=ev.resultIndex; i<ev.results.length; i++){
+        handleChakraTranscript(ev.results[i][0].transcript);
+      }
+    };
+    chakraRecognition.onerror = ev=>{
+      if(ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){
+        chakraListening = false;
+        if(statusEl) statusEl.textContent = 'Microphone permission denied — allow mic access to use this.';
+        updateChakraListenBtn();
+      }
+      // Other errors (no-speech, network, aborted) are transient; onend
+      // below auto-restarts recognition while chakraListening stays true.
+    };
+    chakraRecognition.onend = ()=>{
+      if(chakraListening){
+        try{ chakraRecognition.start(); }catch(e){ /* already starting */ }
+      }
+    };
+    try{
+      chakraRecognition.start();
+      chakraListening = true;
+      if(statusEl) statusEl.textContent = 'Listening… chant a bīja mantra.';
+    }catch(e){
+      if(statusEl) statusEl.textContent = 'Could not start listening.';
+    }
+    updateChakraListenBtn();
+  }
+
+  function stopChakraListening(){
+    chakraListening = false;
+    if(chakraRecognition){
+      chakraRecognition.onend = null;
+      try{ chakraRecognition.stop(); }catch(e){ /* already stopped */ }
+      chakraRecognition = null;
+    }
+    const statusEl = document.getElementById('chakraSoundStatus');
+    if(statusEl) statusEl.textContent = 'Tap "Start Listening" and chant a bīja mantra.';
+    updateChakraListenBtn();
+  }
+
+  function setChakraSubtab(which){
+    const isSound = which === 'sound';
+    document.getElementById('chakraSubtabVisualizer').classList.toggle('active', !isSound);
+    document.getElementById('chakraSubtabSound').classList.toggle('active', isSound);
+    document.getElementById('chakraFrame').style.display = isSound ? 'none' : '';
+    document.getElementById('chakraSoundPanel').style.display = isSound ? '' : 'none';
+    if(!isSound) stopChakraListening();
+  }
+  document.getElementById('chakraSubtabVisualizer').addEventListener('click', ()=>setChakraSubtab('visualizer'));
+  document.getElementById('chakraSubtabSound').addEventListener('click', ()=>setChakraSubtab('sound'));
+  document.getElementById('chakraListenBtn').addEventListener('click', ()=>{
+    if(chakraListening) stopChakraListening(); else startChakraListening();
+  });
+  document.getElementById('chakraSoundResetBtn').addEventListener('click', ()=>{
+    stopChakraListening();
+    resetChakraSoundState();
+  });
+  resetChakraSoundState();
 
   document.getElementById('themeToggle').addEventListener('click', ()=>{
     data.settings.theme = data.settings.theme==='dark' ? 'light' : 'dark';

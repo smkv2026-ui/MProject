@@ -145,6 +145,15 @@ its scope covers the whole app.
   to play the practice video on loop at that speed — it keeps looping
   automatically, counting completed playthroughs and elapsed time, until
   you click **Done**, which shows a summary and stops it.
+- **Chakra Dharana → Practice with Sounds** is a second subtab (next to the
+  original Visualizer) that listens through your microphone and pulses each
+  chakra in its own color when you chant its bīja sound (Lam/Vam/Ram/Yam/
+  Ham/Om, plus the crown's full phrase), locking it to a brighter, steady
+  "on" state once you've chanted it enough times (4/6/10/12/16/2/1). This
+  uses the browser's built-in speech recognition, so it needs a browser
+  that supports it (Chrome/Edge; not Firefox) and works best said clearly
+  in a quiet room — it's a best-effort practice aid, not a precise mantra
+  counter.
 
 ## Project layout
 

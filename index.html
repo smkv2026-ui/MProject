@@ -390,7 +390,22 @@
 <!-- Fullscreen Chakra Dharana -->
 <div class="fullscreen" id="chakraFullscreen">
   <button class="fs-close" id="chakraClose">✕</button>
+  <div class="chakra-subtabs">
+    <button class="chakra-subtab-btn active" id="chakraSubtabVisualizer">Visualizer</button>
+    <button class="chakra-subtab-btn" id="chakraSubtabSound">Practice with Sounds</button>
+  </div>
   <iframe id="chakraFrame" title="Chakra Dharana"></iframe>
+  <div id="chakraSoundPanel" style="display:none;">
+    <div class="chakra-sound-wrap">
+      <div class="chakra-sound-status" id="chakraSoundStatus">Tap "Start Listening" and chant a bīja mantra.</div>
+      <div class="chakra-sound-controls">
+        <button class="pill" id="chakraListenBtn">🎤 Start Listening</button>
+        <button class="pill ghost" id="chakraSoundResetBtn">Reset</button>
+      </div>
+      <div class="chakra-nodes" id="chakraNodes"></div>
+      <div class="chakra-sound-note">Best-effort speech recognition — works best said clearly in a quiet room, in Chrome/Edge on desktop or Android. Not a substitute for guided practice with a teacher.</div>
+    </div>
+  </div>
 </div>
 
 <!-- Account & shared-space modal -->

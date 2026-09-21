@@ -573,6 +573,86 @@ tracker" reasoning as the Journal and Routine modules.
   or folding it into `runningTimers` with a `finalizeAllRunning()` case) —
   don't bolt it on without revisiting this.
 
+## Chakra Dharana — Practice with Sounds subtab
+
+Added after Kriya Practice, as a second subtab inside the existing Chakra
+Dharana fullscreen (`#chakraFullscreen`), alongside — not replacing — the
+original Visualizer iframe.
+
+- **The sealed visualizer blob is never touched.** `js/chakra-data.js` is a
+  single-line, pre-built base64 HTML document rendered via a `data:` URL
+  iframe (see Architecture above: "do not hand-edit the base64"). Rather
+  than attempt to reach into that opaque document to add interactivity,
+  "Practice with Sounds" is a wholly separate panel (`#chakraSoundPanel`)
+  built and owned entirely in `index.html`/`css/styles.css`/`js/app.js`,
+  toggled by a small subtab row (`#chakraSubtabVisualizer` /
+  `#chakraSubtabSound`, via `setChakraSubtab()`) that shows/hides the
+  iframe and the new panel — the iframe's own `src` and state are
+  untouched either way.
+- **Detection is the Web Speech API, best-effort by nature.** `js/app.js`
+  wires `window.SpeechRecognition`/`webkitSpeechRecognition` in
+  `continuous`+`interimResults` mode (`startChakraListening()`), restarting
+  itself automatically on `onend` while `chakraListening` stays true (the
+  API stops itself periodically even mid-conversation) and surfacing a
+  plain-language message in `#chakraSoundStatus` rather than failing
+  silently when: the browser doesn't implement it at all (no Firefox),
+  microphone permission is denied, or the page isn't a secure context
+  (HTTPS/localhost). This is disclosed in the panel's own on-screen note,
+  not just here — recognizing isolated one-syllable Sanskrit bīja mantras
+  through a browser speech engine tuned for English sentences is
+  inherently unreliable, and users should expect to need clear, deliberate
+  pronunciation and a quiet room.
+- **One generic word-list match per chakra, not per-syllable phonetic
+  analysis.** `CHAKRA_SOUND_DEFS` holds one entry per chakra (`key`, `name`,
+  `sound` label, dot `color`, chant-count `threshold`, and a `words` list of
+  the transcript tokens accepted for it, e.g. root accepts
+  `lam`/`lum`/`laam`/`lung`). `handleChakraTranscript()` lowercases and
+  strips punctuation from each recognized utterance, splits it into tokens,
+  and checks for an exact whole-token match against each chakra's `words`
+  list (a substring check would wrongly match "lam" inside an unrelated
+  word like "lamp") — the first matching chakra in root-to-crown order wins
+  for that utterance, since one chant should register as one hit.
+- **The crown phrase gets its own heuristic, not exact-string matching.**
+  "Om Hreem Sri Gurubyho Namaha" is six words long and gets mangled
+  differently on every recognition pass, so exact-phrase matching against
+  `words` would almost never fire. `handleChakraTranscript()` checks the
+  crown chakra first, before the per-syllable loop, using a `tokens` list
+  of its distinctive fragments (`hreem`/`hrim`, `gurubyho`/`gurubhyo`,
+  `namaha`/`namah`) and fires on 2-or-more of those appearing anywhere in
+  the transcript (falling back to an exact-phrase check too, in case
+  recognition is unusually clean) — this is why it's checked ahead of the
+  plain bīja sounds, so a mangled crown phrase that happens to contain a
+  bare "om" isn't mistakenly credited to the Third Eye instead.
+- **Chant counts and thresholds match the request exactly**: Root (Laṁ/Luṁ,
+  yellow, 4), Sacral (Vaṁ/Vuṁ, silver, 6), Solar Plexus (Raṁ/Ruṁ, red, 10),
+  Heart (Yaṁ/Yuṁ, sky blue, 12), Throat (Haṁ/Huṁ, indigo, 16), Third Eye
+  (Om, milk white, 2), Crown (the full phrase, rainbow, 1 — "keep it on"
+  reaching after a single correctly-recognized utterance, since no repeat
+  count was specified for it).
+- **Pulse now, lock on later — one-way per session.** Every recognized hit
+  calls `pulseChakraNode()` (a `.pulsing` class removed and re-added on the
+  next frame so a rapid repeat chant still restarts the CSS animation) via
+  `registerChakraHit()`; once a chakra's `chakraCounts[key]` reaches its
+  `threshold`, `chakraLockedOn[key]` flips true and its node gets `.locked-
+  on` (dot fully bright, permanent `box-shadow` glow, count label replaced
+  with "On ✦") for the rest of the session — there's no un-locking short of
+  Reset or closing/reopening the fullscreen, matching "keep the color On."
+  The crown's `.locked-on.rainbow` dot uses a spinning `conic-gradient()`
+  rather than a single hex color, since "Rainbow" isn't one color to
+  brighten.
+- **State resets on Reset, tab-away, and the same lifecycle points as
+  Journal/Kriya.** `resetChakraSoundState()` (Reset button) zeroes every
+  count and lock; `stopChakraListening()` is called when switching back to
+  the Visualizer subtab, closing the Chakra fullscreen (`chakraClose`), and
+  — alongside `stopKriyaPractice()`/`journalUnlockedThisSession = false` —
+  on both `switchUserBtn` and `resetAppState()`, so a running microphone
+  listener never keeps recognizing speech into the next profile or account.
+  Nothing here is persisted to `data` or Firestore — like Kriya Practice's
+  `kriyaState`, this is a live, in-the-moment session aid, not a logged
+  practice record; if that's wanted later, it's a real design decision
+  (a new `data` field plus a documented reason to start persisting mantra
+  counts), not a silent addition.
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -783,6 +863,21 @@ browser:
     total elapsed time, and Start reappears for another session. Switch
     profiles mid-session and confirm the loop/timer stop rather than
     continuing into the next profile.
+22. Chakra Dharana — Practice with Sounds: open Chakra Dharana, confirm the
+    Visualizer subtab is active by default and behaves exactly as before,
+    then switch to the Practice with Sounds subtab and confirm the iframe
+    hides and the 7-chakra node list appears. Click Start Listening (grant
+    mic permission) and chant each bīja sound near its threshold count —
+    confirm each chakra's dot pulses on a recognized chant, its count label
+    increments, and it flips to a brighter, permanently-lit "On ✦" state
+    exactly at its threshold (4/6/10/12/16/2/1) and not before. Confirm an
+    unrelated word doesn't false-trigger a chakra. Confirm switching back to
+    Visualizer and clicking Reset both stop the microphone (no continued
+    recognition) and Reset also clears all counts/lock-on state. Switch
+    profiles or sign out mid-listening and confirm recognition stops rather
+    than continuing into the next session. In a browser without Web Speech
+    API support (or without HTTPS/localhost), confirm Start Listening shows
+    a plain explanatory message instead of failing silently.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the
