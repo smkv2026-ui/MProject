@@ -139,6 +139,12 @@ its scope covers the whole app.
   Firestore directly once signed in some other way. See "Admin module" in
   CLAUDE.md for the full trade-off (and the alternatives that were
   considered) before changing who can access this feature.
+- **Kriya Practice** (last tab, after Chakra Dharana) is locked behind a
+  password (`SriGuruBabaJi`) until entered once per profile session. Once
+  open, drag the speed slider (0.25× to 2×) to set the pace, then **Start**
+  to play the practice video on loop at that speed — it keeps looping
+  automatically, counting completed playthroughs and elapsed time, until
+  you click **Done**, which shows a summary and stops it.
 
 ## Project layout
 

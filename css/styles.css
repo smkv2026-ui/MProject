@@ -904,3 +904,23 @@
   }
   .admin-stat-row:last-child{ border-bottom:none; }
   .admin-stat-row b{ color:var(--gold); font-variant-numeric:tabular-nums; }
+
+  /* ---------- Kriya Practice ---------- */
+  .kriya-video-wrap{
+    background:#000; border-radius:var(--radius); overflow:hidden; margin-bottom:16px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .kriya-video-wrap video{ width:100%; max-height:70vh; display:block; }
+  .kriya-speed-row{
+    border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-raised);
+    padding:12px 14px; margin-bottom:14px;
+  }
+  .kriya-speed-val{ font-weight:700; color:var(--gold); font-variant-numeric:tabular-nums; }
+  .kriya-speed-slider{ width:100%; accent-color:var(--gold); margin:8px 0 4px; }
+  .kriya-speed-ticks{ display:flex; justify-content:space-between; font-size:11px; color:var(--ink-soft); }
+  .kriya-stats-row{
+    display:flex; gap:18px; flex-wrap:wrap; font-size:13.5px; color:var(--ink-soft);
+    background:var(--bg-raised); border:1px solid var(--line); border-radius:var(--radius);
+    padding:9px 14px;
+  }
+  .kriya-stats-row b{ color:var(--gold); font-variant-numeric:tabular-nums; }

@@ -409,6 +409,8 @@ import { auth } from "./firebase-init.js";
     finalizeAllRunning();
     clearAllReminderTimers();
     journalUnlockedThisSession = false;
+    kriyaUnlockedThisSession = false;
+    stopKriyaPractice();
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -455,6 +457,8 @@ import { auth } from "./firebase-init.js";
     finalizeAllRunning();
     clearAllReminderTimers();
     journalUnlockedThisSession = false;
+    kriyaUnlockedThisSession = false;
+    stopKriyaPractice();
     users = [];
     gurus = [];
     currentUser = null;
@@ -494,10 +498,12 @@ import { auth } from "./firebase-init.js";
       document.getElementById('tab-journal').style.display = tab==='journal' ? '' : 'none';
       document.getElementById('tab-calendar').style.display = tab==='calendar' ? '' : 'none';
       document.getElementById('tab-gurus').style.display = tab==='gurus' ? '' : 'none';
+      document.getElementById('tab-kriya').style.display = tab==='kriya' ? '' : 'none';
       if(tab==='routine') renderRoutineTab();
       if(tab==='journal') renderJournalTab();
       if(tab==='calendar') renderCalendar();
       if(tab==='gurus') renderGurusTab();
+      if(tab==='kriya') renderKriyaTab();
     });
   });
 
@@ -4038,5 +4044,103 @@ import { auth } from "./firebase-init.js";
       </div>`;
     }).join('');
     return `<div class="journal-section"><div class="journal-section-title">📔 Journal (${dates.length} ${dates.length===1?'day':'days'})</div>${body}</div>`;
+  }
+
+  /* ---------- Kriya Practice ----------
+     A password-gated tab (fixed password, not user-configurable — same
+     "UI convenience, not real security" caveat as everywhere else this
+     pattern is used) that plays a practice video on a loop at a
+     user-chosen speed, counting completed loops and total elapsed time
+     from Start to Done. Unlocked once per session, like the Journal PIN,
+     via a module-level flag rather than anything persisted. */
+  const KRIYA_PASSWORD = 'SriGuruBabaJi';
+  let kriyaUnlockedThisSession = false;
+  let kriyaState = null; // {startTime, loopCount, tickHandle} while a practice session is running
+
+  function isKriyaLocked(){ return !kriyaUnlockedThisSession; }
+
+  function renderKriyaTab(){
+    const locked = isKriyaLocked();
+    document.getElementById('kriyaLockedView').style.display = locked ? '' : 'none';
+    document.getElementById('kriyaContent').style.display = locked ? 'none' : '';
+  }
+
+  function attemptKriyaUnlock(){
+    const pw = document.getElementById('kriyaUnlockInput').value;
+    const errEl = document.getElementById('kriyaUnlockError');
+    if(pw !== KRIYA_PASSWORD){
+      errEl.textContent = 'Incorrect password.';
+      errEl.style.display = '';
+      return;
+    }
+    kriyaUnlockedThisSession = true;
+    document.getElementById('kriyaUnlockInput').value = '';
+    errEl.style.display = 'none';
+    renderKriyaTab();
+  }
+
+  document.getElementById('kriyaUnlockBtn').addEventListener('click', attemptKriyaUnlock);
+  document.getElementById('kriyaUnlockInput').addEventListener('keydown', ev=>{ if(ev.key==='Enter') attemptKriyaUnlock(); });
+
+  const kriyaVideo = document.getElementById('kriyaVideo');
+  const kriyaSpeedSlider = document.getElementById('kriyaSpeedSlider');
+  const kriyaSpeedVal = document.getElementById('kriyaSpeedVal');
+
+  function applyKriyaSpeed(){
+    const rate = parseFloat(kriyaSpeedSlider.value) || 1;
+    kriyaVideo.playbackRate = rate;
+    kriyaSpeedVal.textContent = rate.toFixed(2)+'x';
+  }
+  kriyaSpeedSlider.addEventListener('input', applyKriyaSpeed);
+  applyKriyaSpeed();
+
+  // loop=false and looping is done manually (rather than the video's own
+  // `loop` attribute) so each full playthrough fires 'ended' and can be
+  // counted — the loop attribute restarts silently without ever firing it.
+  kriyaVideo.addEventListener('ended', ()=>{
+    if(!kriyaState) return;
+    kriyaState.loopCount++;
+    document.getElementById('kriyaLoopCount').textContent = kriyaState.loopCount;
+    kriyaVideo.currentTime = 0;
+    kriyaVideo.play().catch(()=>{});
+  });
+
+  document.getElementById('kriyaStartBtn').addEventListener('click', ()=>{
+    kriyaState = { startTime: Date.now(), loopCount: 0 };
+    document.getElementById('kriyaStatsRow').style.display = '';
+    document.getElementById('kriyaLoopCount').textContent = '0';
+    document.getElementById('kriyaElapsed').textContent = '0s';
+    document.getElementById('kriyaSummary').style.display = 'none';
+    document.getElementById('kriyaStartBtn').style.display = 'none';
+    document.getElementById('kriyaDoneBtn').style.display = '';
+    kriyaVideo.currentTime = 0;
+    applyKriyaSpeed();
+    kriyaVideo.play().catch(()=>{});
+    kriyaState.tickHandle = setInterval(()=>{
+      document.getElementById('kriyaElapsed').textContent = fmtShort((Date.now()-kriyaState.startTime)/1000);
+    }, 1000);
+  });
+
+  document.getElementById('kriyaDoneBtn').addEventListener('click', ()=>{
+    if(!kriyaState) return;
+    const elapsedSec = (Date.now()-kriyaState.startTime)/1000;
+    const loops = kriyaState.loopCount;
+    stopKriyaPractice();
+    const summaryEl = document.getElementById('kriyaSummary');
+    summaryEl.textContent = `Practice complete: ${loops} loop${loops===1?'':'s'} · ${fmtShort(elapsedSec)} total.`;
+    summaryEl.style.display = '';
+  });
+
+  // Stops any in-progress practice session without writing a summary —
+  // used both by the Done button (which writes its own summary right
+  // after) and by switch-user/sign-out cleanup, so a running loop/timer
+  // never keeps ticking into the next profile or account.
+  function stopKriyaPractice(){
+    if(!kriyaState) return;
+    clearInterval(kriyaState.tickHandle);
+    kriyaVideo.pause();
+    kriyaState = null;
+    document.getElementById('kriyaStartBtn').style.display = '';
+    document.getElementById('kriyaDoneBtn').style.display = 'none';
   }
 

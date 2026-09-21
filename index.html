@@ -114,6 +114,7 @@
     <button class="tab-btn" data-tab="calendar">Calendar</button>
     <button class="tab-btn" data-tab="gurus">Guru's Teachings</button>
     <button class="tab-btn" data-tab="chakra">Chakra Dharana</button>
+    <button class="tab-btn" data-tab="kriya">Kriya Practice</button>
   </div>
 
   <div id="tab-today">
@@ -307,6 +308,56 @@
         <input type="text" id="gurusSearch" placeholder="Search teachings, e.g. a keyword or phrase">
       </div>
       <div id="guruTeachingsList"></div>
+    </div>
+  </div>
+
+  <div id="tab-kriya" style="display:none;">
+    <div id="kriyaLockedView">
+      <div class="account-panel" style="margin:20px auto;">
+        <h3 class="serif" style="margin:0 0 10px;">🔒 Kriya Practice is locked</h3>
+        <p class="empty-note" style="margin-bottom:14px;">Enter the password to open Kriya Practice.</p>
+        <input type="password" id="kriyaUnlockInput" placeholder="Password" class="journal-pin-input" style="letter-spacing:normal;">
+        <div class="form-actions">
+          <button class="pill" id="kriyaUnlockBtn">Unlock</button>
+        </div>
+        <div class="empty-note journal-unlock-error" id="kriyaUnlockError" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div id="kriyaContent" style="display:none;">
+      <div class="sec-head">
+        <div>
+          <h2>Kriya Practice</h2>
+          <div class="desc">Practice along with the video at your own pace</div>
+        </div>
+      </div>
+
+      <div class="kriya-video-wrap">
+        <video id="kriyaVideo" playsinline preload="metadata">
+          <source src="assets/kriya-practice.mp4" type="video/mp4">
+        </video>
+      </div>
+
+      <div class="kriya-speed-row">
+        <div class="row-flex">
+          <label class="field-label" style="margin-bottom:0;">Playback speed</label>
+          <span class="kriya-speed-val" id="kriyaSpeedVal">1.00x</span>
+        </div>
+        <input type="range" id="kriyaSpeedSlider" class="kriya-speed-slider" min="0.25" max="2" step="0.01" value="1">
+        <div class="kriya-speed-ticks"><span>0.25x slow</span><span>1x normal</span><span>2x fast</span></div>
+      </div>
+
+      <div class="kriya-stats-row" id="kriyaStatsRow" style="display:none;">
+        <span>🔁 Loops: <b id="kriyaLoopCount">0</b></span>
+        <span>⏱ Elapsed: <b id="kriyaElapsed">0s</b></span>
+      </div>
+
+      <div id="kriyaSummary" class="empty-note" style="display:none; margin-top:10px;"></div>
+
+      <div class="form-actions" style="margin-top:14px;">
+        <button class="pill" id="kriyaStartBtn">Start Practice</button>
+        <button class="pill ghost" id="kriyaDoneBtn" style="display:none;">Done</button>
+      </div>
     </div>
   </div>
 </div>

@@ -62,6 +62,9 @@ js/chakra-data.js        A large base64-encoded standalone HTML document
 manifest.webmanifest     PWA manifest.
 service-worker.js        App-shell cache (see "PWA app-shell caching" below).
 icons/                   Generated PWA icons (mala-bead motif, app palette).
+assets/                  Static media too large for base64/Firestore —
+                         currently just kriya-practice.mp4 (see "Kriya
+                         Practice module" below).
 firestore.rules          Security rules enforcing workspace membership.
 firebase.json            Hosting + Firestore deploy config.
 BRD.md                   Business requirements document.
@@ -503,6 +506,73 @@ deliberate, not an oversight.
   entered from any of them (in practice, only the auth screen, since that's
   where the sign-in form lives).
 
+## Kriya Practice module
+
+The sixth tab (`#tab-kriya`, after Chakra Dharana in the tab bar) plays a
+practice video on loop at a user-chosen speed, counting completed
+playthroughs and total elapsed time from Start to Done. Lives in `js/app.js`
+like every other tab, for the same "shares helpers with the rest of the
+tracker" reasoning as the Journal and Routine modules.
+
+- **Password-gated, but with a fixed, non-configurable password.** Unlike
+  the Journal's PIN (per-profile, user-set, hashed in `data.settings`),
+  Kriya Practice's password (`SriGuruBabaJi` — the same literal string
+  used for the Admin account, since the user specified it directly for
+  both) is a hardcoded constant checked with a plain string comparison, no
+  hashing, nothing persisted. `kriyaUnlockedThisSession` is a module-level
+  flag exactly like `journalUnlockedThisSession` — unlocked once per
+  profile session, reset to `false` (alongside `stopKriyaPractice()`, so a
+  running loop/timer doesn't keep going into the next profile) in both the
+  `switchUserBtn` handler and `resetAppState()`. Same caveat as everywhere
+  else this pattern appears: it's a UI convenience, not real security — the
+  password and the video file are both fully visible to anyone who reads
+  the page's source.
+- **The video is a real committed file, not base64/Firestore.** Unlike
+  `js/chakra-data.js` (a small HTML animation, cheap to inline as base64)
+  or guru photos/japa backgrounds (small images, resized and stored inline
+  per Firestore's 1 MiB document cap), a practice video is too large for
+  either approach. It's committed directly as `assets/kriya-practice.mp4`
+  and referenced by a normal `<video><source src="assets/...">` tag —
+  served as a static file by whatever's hosting the app (GitHub Pages /
+  Firebase Hosting), no Firestore or base64 involved. Replacing the video
+  is just replacing that one file; there's no encoding step.
+- **Deliberately excluded from the service worker's `PRECACHE_URLS`.**
+  Precaching forces every fresh install to download it before the app is
+  usable at all, and `cache.addAll()` fails the *entire* install if any one
+  resource fails — an 8+ MB video is a much likelier failure point than the
+  KB-sized app-shell files that list currently contains. Left out, it's
+  still cached automatically after the first time someone opens the tab
+  (same opportunistic same-origin caching the network-first fetch handler
+  already gives every other asset — see "PWA app-shell caching"), just not
+  force-downloaded on every install.
+- **Looping is manual, not the `loop` HTML attribute.** `kriyaVideo`'s
+  `ended` event handler increments the loop counter, resets
+  `currentTime = 0`, and calls `.play()` again — deliberately not using
+  `<video loop>`, because a looping video seeks back to the start
+  *without* ever firing `ended`, which would make counting completed
+  playthroughs impossible. `.play()` calls are wrapped in
+  `.catch(()=>{})` since calling `.pause()` (e.g. clicking Done) while a
+  `.play()` promise is still pending is a normal, harmless race that
+  otherwise surfaces as an unhandled-rejection console warning.
+- **Speed control is one slider, not preset buttons.** `#kriyaSpeedSlider`
+  is a single `<input type="range" min="0.25" max="2" step="0.01">`
+  (`accent-color:var(--gold)` to match the Journal rating sliders' style);
+  its `input` handler sets `kriyaVideo.playbackRate` and updates the
+  `x.xx×` label immediately, live, whether or not a practice session is
+  currently running.
+- **Start/Done owns its own tiny timer, not `runningTimers`.** This isn't
+  logged against any profile data (`data.logs`, `data.japa`, etc.) the way
+  Japa/Practice/custom-activity sessions are — it's a live, in-the-moment
+  loop counter and stopwatch shown only for the current session and
+  summarized once on Done, not a historical record. Because of that, it
+  deliberately does **not** join the shared `runningTimers` map
+  (`'<id>|<sandhya>'` / `'activity|<id>'` keyed) that Japa/Practice/custom
+  activities use — `kriyaState` is a private `{startTime, loopCount,
+  tickHandle}` object instead. If a future request asks for Kriya practice
+  history/stats, that's a real design decision (a new logged data source,
+  or folding it into `runningTimers` with a `finalizeAllRunning()` case) —
+  don't bolt it on without revisiting this.
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -696,6 +766,23 @@ browser:
     content (including structured reflections). "Exit Admin" returns to
     whichever screen makes sense (the app screen if a profile was open
     before entering Admin, otherwise the user-select or auth screen).
+20. Kriya Practice — gate: click the "Kriya Practice" tab (after Chakra
+    Dharana) and confirm it's locked with an incorrect password rejected
+    and a correct one (`SriGuruBabaJi`) unlocking it for the rest of the
+    session (switching tabs away and back stays unlocked; switching
+    profiles or signing out re-locks it).
+21. Kriya Practice — playback: with the video unlocked, drag the speed
+    slider and confirm the label updates live (e.g. `0.67x`) and the
+    video's actual played-back speed changes to match, both before and
+    during a practice session. Click Start: confirm the video plays from
+    the beginning, the loop/elapsed stats row appears, and Start is
+    replaced by Done. Let it complete at least one full playthrough and
+    confirm the loop counter increments and the video restarts
+    automatically rather than stopping. Click Done at any point and
+    confirm the video stops, a summary shows the correct loop count and
+    total elapsed time, and Start reappears for another session. Switch
+    profiles mid-session and confirm the loop/timer stop rather than
+    continuing into the next profile.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

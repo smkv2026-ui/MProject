@@ -790,3 +790,82 @@ new category of exposure, just a different mechanic for the same one.
 - A normal user's own sign-up or sign-in is entirely unaffected, unless
   they happen to use the literal email `admin@sadhana.local` themselves (an
   accepted, documented collision, not a bug).
+
+# Addendum H — Kriya Practice Module
+
+| | |
+|---|---|
+| **Document status** | Approved for v1 implementation |
+| **Date** | 2026-09-21 |
+
+## H.1 Objective
+
+A sixth tab, "Kriya Practice," placed after Chakra Dharana: password-gated
+(fixed password `SriGuruBabaJi`), showing a supplied practice video with an
+adjustable playback-speed control (0.25× to 2×, fine-grained), a Start
+control that loops the video continuously at the chosen speed until Done is
+clicked, and a live/final count of how many times the video played and the
+total elapsed time from Start to Done.
+
+## H.2 Scope delivered
+
+- **Lock**: same session-unlock pattern as the Journal's PIN
+  (`kriyaUnlockedThisSession`, reset on switch-user/sign-out), but with a
+  single fixed password rather than a per-profile, user-settable one — an
+  incorrect password shows an error and stays locked; the correct one
+  unlocks the tab for the rest of that profile session.
+- **Video**: the supplied video file, committed to the repo as
+  `assets/kriya-practice.mp4` and played via a standard HTML `<video>`
+  element — no transcoding, no base64 encoding, no Firestore involvement.
+- **Speed control**: one range slider (0.25–2.0, step 0.01, so values like
+  0.67/0.68/0.69 are reachable), live-updating both a numeric label
+  (`x.xx×`) and the video's actual `playbackRate`, usable before and during
+  a practice session.
+- **Practice session**: Start plays the video from the beginning at the
+  currently-set speed and begins counting; each full playthrough (detected
+  via the video's `ended` event, with the video then manually restarted —
+  not the `loop` attribute, which never fires `ended`) increments a loop
+  counter shown live; an elapsed-time readout ticks once a second. Done
+  stops the video, and shows a one-line summary: total loops completed and
+  total elapsed time, using the same short-duration formatting
+  (`fmtShort()`) already used elsewhere in the app.
+
+## H.3 Deliberate simplifications (see CLAUDE.md "Kriya Practice module"
+for the technical why)
+
+- **Not precached for offline use.** Every other PWA asset is precached on
+  install; this video (several MB) deliberately is not, since an install
+  failing because ONE large media file couldn't be fetched would be worse
+  than the video simply not being available offline until the tab has been
+  opened once online. It still gets cached opportunistically after that
+  first successful load, the same as any other same-origin asset.
+- **No historical logging.** Unlike Japa/Practice/custom activities, a
+  Kriya Practice session's loop count and duration are shown live and
+  summarized once on Done, but not written to `data.logs` or any other
+  persisted record — there's no calendar/dashboard trace of past sessions.
+  This matches what was asked (a live counter/stopwatch for the current
+  session) rather than inventing a new tracked-history feature; if
+  historical logging is wanted later, that's a real design addition, not
+  a bug fix.
+- **One slider, not preset "slow/normal/fast" buttons.** The brief
+  described a single speed range with 1× as normal and 2× as fast: that's
+  delivered as one continuous slider covering the whole range (with text
+  labels at the ends for orientation), not three separate preset buttons,
+  to avoid adding UI beyond what was actually asked for.
+
+## H.4 Success criteria
+
+- The tab is locked by default every time a profile is freshly opened, and
+  unlocks only with the exact correct password.
+- Dragging the speed slider changes the label and the video's actual
+  playback speed immediately, both at rest and while a practice session
+  is running.
+- Starting a practice session plays the video from the start at the
+  chosen speed, and it keeps looping automatically (no manual replay
+  needed) until Done is clicked.
+- The loop counter accurately reflects the number of full playthroughs
+  completed since Start, and the elapsed-time readout and final summary
+  both reflect true wall-clock time from Start to Done.
+- Switching profiles or signing out while a practice session is running
+  stops it cleanly rather than leaving a timer or a looping video running
+  in the background.
