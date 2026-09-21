@@ -886,6 +886,13 @@ steady — for the rest of the session.
   Chakra Dharana fullscreen. The original visualizer (a sealed, pre-built
   animation) is completely untouched — the new mode is a fully separate
   panel that just shares the same fullscreen container and close button.
+- The Practice with Sounds panel shows the same meditating-figure
+  silhouette artwork the visualizer itself uses for its "Dharana" screen —
+  extracted once as a standalone image asset, not redrawn — with a colored
+  dot overlaid at each chakra's exact position on that figure (matching the
+  artwork's own chakra symbols), so the sound-driven glow effect visually
+  reads as lighting up the same figure the user already recognizes from the
+  Visualizer, per their explicit request.
 - Seven chakra nodes, each pulsing on a recognized chant of its sound and
   locking to a bright, permanently-lit state once its threshold is
   reached, per the exact spec given:

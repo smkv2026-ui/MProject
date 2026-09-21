@@ -63,8 +63,10 @@ manifest.webmanifest     PWA manifest.
 service-worker.js        App-shell cache (see "PWA app-shell caching" below).
 icons/                   Generated PWA icons (mala-bead motif, app palette).
 assets/                  Static media too large for base64/Firestore —
-                         currently just kriya-practice.mp4 (see "Kriya
-                         Practice module" below).
+                         kriya-practice.mp4 (see "Kriya Practice module"
+                         below) and chakra-dharana-silhouette.png (see
+                         "Chakra Dharana — Practice with Sounds subtab"
+                         below).
 firestore.rules          Security rules enforcing workspace membership.
 firebase.json            Hosting + Firestore deploy config.
 BRD.md                   Business requirements document.
@@ -589,6 +591,31 @@ original Visualizer iframe.
   `#chakraSubtabSound`, via `setChakraSubtab()`) that shows/hides the
   iframe and the new panel — the iframe's own `src` and state are
   untouched either way.
+- **The silhouette shown is the visualizer's own "Dharana" figure, extracted
+  as a plain asset — not a new drawing and not an edit to the sealed
+  blob.** The visualizer embeds a meditating-figure artwork
+  (`assets/chakra-dharana-silhouette.png`, 312×338, extracted once from the
+  base64 payload inside `js/chakra-data.js` and committed as its own static
+  file) that it already draws its own on-canvas chakra markers on top of.
+  Reading that embedded image out to reuse it is not the same thing as
+  hand-editing `js/chakra-data.js`'s base64 string — that file is untouched,
+  byte-for-byte — it just means the new panel's silhouette is the same
+  artwork the user already recognizes from the Dharana visualizer, per their
+  request, rather than a new drawing. `#chakraSoundPanel` renders it via a
+  plain `<img>` inside `.chakra-silhouette-wrap` (a fixed-aspect-ratio box,
+  `aspect-ratio:312/338`, so the image never letterboxes and percentage
+  positions map 1:1 to image pixels), with `#chakraSilDots` absolutely
+  positioned on top.
+- **Dot positions were measured from the visualizer's own drawing code, not
+  eyeballed.** Each `CHAKRA_SOUND_DEFS` entry's `top` (percent of the
+  silhouette's height) reproduces the exact chakra marker positions the
+  visualizer's own `drawSilhouette()`/`SENSOR_CONFIG` computed for this same
+  image; `CHAKRA_SIL_LEFT_PCT` (48.4%) is the one shared horizontal
+  position, since every chakra sits on the same vertical spine line. The
+  result is that each overlay dot lands exactly on that chakra's existing
+  hand-drawn symbol in the artwork (the crown dot sits on the rainbow
+  feather crest, the throat dot on the throat, etc.) rather than
+  approximately near it.
 - **Detection is the Web Speech API, best-effort by nature.** `js/app.js`
   wires `window.SpeechRecognition`/`webkitSpeechRecognition` in
   `continuous`+`interimResults` mode (`startChakraListening()`), restarting
@@ -629,17 +656,21 @@ original Visualizer iframe.
   (Om, milk white, 2), Crown (the full phrase, rainbow, 1 — "keep it on"
   reaching after a single correctly-recognized utterance, since no repeat
   count was specified for it).
-- **Pulse now, lock on later — one-way per session.** Every recognized hit
-  calls `pulseChakraNode()` (a `.pulsing` class removed and re-added on the
-  next frame so a rapid repeat chant still restarts the CSS animation) via
-  `registerChakraHit()`; once a chakra's `chakraCounts[key]` reaches its
-  `threshold`, `chakraLockedOn[key]` flips true and its node gets `.locked-
-  on` (dot fully bright, permanent `box-shadow` glow, count label replaced
-  with "On ✦") for the rest of the session — there's no un-locking short of
+- **Pulse now, lock on later — one-way per session, on both the silhouette
+  and the list.** Every recognized hit calls `pulseChakraNode(key)` via
+  `registerChakraHit()`, which pulses *two* DOM elements per chakra in
+  lockstep — the row dot (`#chakraNode-<key>`) and the silhouette overlay
+  dot (`#chakraSilDot-<key>`) — by removing and re-adding a `.pulsing` class
+  on each (with a forced reflow in between so a rapid repeat chant still
+  restarts the CSS animation on both). Once a chakra's `chakraCounts[key]`
+  reaches its `threshold`, `chakraLockedOn[key]` flips true and
+  `renderChakraNodes()` gives both elements `.locked-on` (dot fully bright,
+  permanent `box-shadow` glow; the row's count label also switches to
+  "On ✦") for the rest of the session — there's no un-locking short of
   Reset or closing/reopening the fullscreen, matching "keep the color On."
-  The crown's `.locked-on.rainbow` dot uses a spinning `conic-gradient()`
-  rather than a single hex color, since "Rainbow" isn't one color to
-  brighten.
+  The crown's `.locked-on.rainbow` dot (row and silhouette both) uses a
+  spinning `conic-gradient()` rather than a single hex color, since
+  "Rainbow" isn't one color to brighten.
 - **State resets on Reset, tab-away, and the same lifecycle points as
   Journal/Kriya.** `resetChakraSoundState()` (Reset button) zeroes every
   count and lock; `stopChakraListening()` is called when switching back to
@@ -866,14 +897,21 @@ browser:
 22. Chakra Dharana — Practice with Sounds: open Chakra Dharana, confirm the
     Visualizer subtab is active by default and behaves exactly as before,
     then switch to the Practice with Sounds subtab and confirm the iframe
-    hides and the 7-chakra node list appears. Click Start Listening (grant
-    mic permission) and chant each bīja sound near its threshold count —
-    confirm each chakra's dot pulses on a recognized chant, its count label
-    increments, and it flips to a brighter, permanently-lit "On ✦" state
-    exactly at its threshold (4/6/10/12/16/2/1) and not before. Confirm an
-    unrelated word doesn't false-trigger a chakra. Confirm switching back to
-    Visualizer and clicking Reset both stop the microphone (no continued
-    recognition) and Reset also clears all counts/lock-on state. Switch
+    hides and the meditating-figure silhouette (same artwork as the
+    Dharana visualizer) appears above the 7-chakra node list, with a faint
+    dot at each chakra position on the figure lining up with that chakra's
+    own symbol in the artwork (crown feather, third eye, throat, heart,
+    solar plexus, sacral, root). Click Start Listening (grant mic
+    permission) and chant each bīja sound near its threshold count —
+    confirm both the silhouette's dot at that chakra AND its row in the
+    list pulse together on a recognized chant, the row's count label
+    increments, and both flip to a brighter, permanently-lit "On ✦"/glowing
+    state exactly at its threshold (4/6/10/12/16/2/1) and not before, in
+    the correct color (yellow/silver/red/sky blue/indigo/milk white/
+    rainbow). Confirm an unrelated word doesn't false-trigger a chakra.
+    Confirm switching back to Visualizer and clicking Reset both stop the
+    microphone (no continued recognition) and Reset also clears all
+    counts/lock-on state on both the silhouette and the list. Switch
     profiles or sign out mid-listening and confirm recognition stops rather
     than continuing into the next session. In a browser without Web Speech
     API support (or without HTTPS/localhost), confirm Start Listening shows

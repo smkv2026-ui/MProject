@@ -535,14 +535,24 @@ import { auth } from "./firebase-init.js";
      Sanskrit syllables, is Chromium/Safari-only (no Firefox), and needs a
      secure context (HTTPS or localhost) — the panel says so rather than
      silently failing quietly. */
+  // `top` is the vertical position (% of the silhouette image's height) of
+  // each chakra's dot overlay on assets/chakra-dharana-silhouette.png — the
+  // same artwork used by the sealed Chakra Dharana visualizer (js/chakra-
+  // data.js), extracted as a standalone asset rather than hand-edited so
+  // that sealed blob is never touched. These percentages were measured
+  // directly from the visualizer's own drawing code (the canvas positions
+  // it places its chakra markers at on that same image), so the dots line
+  // up exactly with the artwork's own chakra symbols; the horizontal
+  // position is identical for all seven (they all sit on the spine line).
+  const CHAKRA_SIL_LEFT_PCT = 48.4;
   const CHAKRA_SOUND_DEFS = [
-    { key:'root',     name:'Root · Mūlādhāra',     sound:'Laṁ / Luṁ',                         color:'#e8c400', threshold:4,  words:['lam','lum','laam','lung'] },
-    { key:'sacral',   name:'Sacral · Svādhiṣṭhāna', sound:'Vaṁ / Vuṁ',                         color:'#c7c9d1', threshold:6,  words:['vam','vum','vaam','vung'] },
-    { key:'solar',    name:'Solar Plexus · Maṇipūra', sound:'Raṁ / Ruṁ',                       color:'#e03b3b', threshold:10, words:['ram','rum','raam','rung'] },
-    { key:'heart',    name:'Heart · Anāhata',      sound:'Yaṁ / Yuṁ',                          color:'#4fb8e8', threshold:12, words:['yam','yum','yaam','yung'] },
-    { key:'throat',   name:'Throat · Viśuddha',    sound:'Haṁ / Huṁ',                          color:'#5b4fd6', threshold:16, words:['ham','hum','haam','hung','hmm'] },
-    { key:'forehead', name:'Third Eye · Ājñā',     sound:'Om',                                 color:'#f6f6ee', threshold:2,  words:['om','aum','ohm'] },
-    { key:'crown',    name:'Crown · Sahasrāra',    sound:'Om Hreem Sri Gurubyho Namaha',       color:'rainbow', threshold:1,
+    { key:'root',     name:'Root · Mūlādhāra',     sound:'Laṁ / Luṁ',                         color:'#e8c400', threshold:4,  top:91.2, words:['lam','lum','laam','lung'] },
+    { key:'sacral',   name:'Sacral · Svādhiṣṭhāna', sound:'Vaṁ / Vuṁ',                         color:'#c7c9d1', threshold:6,  top:79.9, words:['vam','vum','vaam','vung'] },
+    { key:'solar',    name:'Solar Plexus · Maṇipūra', sound:'Raṁ / Ruṁ',                       color:'#e03b3b', threshold:10, top:69.6, words:['ram','rum','raam','rung'] },
+    { key:'heart',    name:'Heart · Anāhata',      sound:'Yaṁ / Yuṁ',                          color:'#4fb8e8', threshold:12, top:48.2, words:['yam','yum','yaam','yung'] },
+    { key:'throat',   name:'Throat · Viśuddha',    sound:'Haṁ / Huṁ',                          color:'#5b4fd6', threshold:16, top:34.3, words:['ham','hum','haam','hung','hmm'] },
+    { key:'forehead', name:'Third Eye · Ājñā',     sound:'Om',                                 color:'#f6f6ee', threshold:2,  top:17.1, words:['om','aum','ohm'] },
+    { key:'crown',    name:'Crown · Sahasrāra',    sound:'Om Hreem Sri Gurubyho Namaha',       color:'rainbow', threshold:1,  top:7.1,
       words:['om hreem sri gurubyho namaha','om hreem shri gurubhyo namaha'],
       tokens:['hreem','hrim','gurubyho','gurubhyo','gurubhyoh','namaha','namah'] }
   ];
@@ -560,7 +570,8 @@ import { auth } from "./firebase-init.js";
 
   function renderChakraNodes(){
     const wrap = document.getElementById('chakraNodes');
-    if(!wrap) return;
+    const silWrap = document.getElementById('chakraSilDots');
+    if(!wrap || !silWrap) return;
     wrap.innerHTML = CHAKRA_SOUND_DEFS.map(d=>{
       const locked = chakraLockedOn[d.key];
       const count = chakraCounts[d.key];
@@ -575,15 +586,23 @@ import { auth } from "./firebase-init.js";
         </div>
       </div>`;
     }).join('');
+    silWrap.innerHTML = CHAKRA_SOUND_DEFS.map(d=>{
+      const locked = chakraLockedOn[d.key];
+      const isRainbow = d.color === 'rainbow';
+      const colorDecl = isRainbow ? '' : `--dot-color:${d.color};`;
+      return `<div class="chakra-sil-dot${locked?' locked-on':''}${isRainbow?' rainbow':''}" id="chakraSilDot-${d.key}"
+        style="${colorDecl}top:${d.top}%;left:${CHAKRA_SIL_LEFT_PCT}%;" title="${escapeHtml(d.name)}"></div>`;
+    }).join('');
   }
 
   function pulseChakraNode(key){
-    const el = document.getElementById('chakraNode-'+key);
-    if(!el) return;
-    el.classList.remove('pulsing');
-    void el.offsetWidth; // force reflow so re-adding the class restarts the animation
-    el.classList.add('pulsing');
-    setTimeout(()=>{ el.classList.remove('pulsing'); }, 600);
+    [document.getElementById('chakraNode-'+key), document.getElementById('chakraSilDot-'+key)].forEach(el=>{
+      if(!el) return;
+      el.classList.remove('pulsing');
+      void el.offsetWidth; // force reflow so re-adding the class restarts the animation
+      el.classList.add('pulsing');
+      setTimeout(()=>{ el.classList.remove('pulsing'); }, 600);
+    });
   }
 
   function registerChakraHit(def){
