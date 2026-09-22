@@ -953,3 +953,61 @@ Dharana — Practice with Sounds subtab" for the full reasoning)
   shouldn't.
 - A browser or context that can't support speech recognition shows a clear
   explanation instead of a silently broken Start button.
+
+# Addendum J — Premium UI Pass, Japa Image Fix, and Practice-with-Sounds Improvements
+
+## J.1 Objective
+
+Three follow-up requests bundled into one round: make the whole app's look
+and feel more premium/interactive, fix the japa counter's uploaded
+background image so it always fits the mobile screen correctly, and make
+Practice with Sounds (Addendum I) both easier to use (recognition
+shouldn't require effortful, paused, one-at-a-time chanting) and more
+visually rewarding (a lotus that visibly grows petal-by-petal, per the
+user's example of a 4-petal root chakra and a 16-petal throat chakra), plus
+a modest size increase for its silhouette.
+
+## J.2 Scope delivered
+
+- **Premium UI pass** — a CSS-only enhancement layered onto the existing
+  design language's shared primitives (buttons, tabs, cards, inputs, focus
+  states, scrollbars, fullscreen transitions), so it reads consistently
+  across every screen without restructuring any markup or renaming any
+  `id`/class the app's JS depends on. See CLAUDE.md "Conventions to
+  preserve" for the specifics.
+- **Japa fullscreen background image** — `.fullscreen` now sizes to the
+  real mobile viewport (`100dvh` + `overflow:hidden`) instead of relying
+  only on `inset:0`, which can mismatch the visible area as a mobile
+  browser's URL bar animates. `background-size:cover` (already correct —
+  fills the frame without distorting the image) is unchanged.
+- **Practice with Sounds — easier recognition.** Rapid, continuous
+  chanting (e.g. "lam" said four times without pausing) now credits every
+  repetition as its own hit, not just one hit per pause; the browser's
+  alternate recognition guesses are also checked, and each chakra's
+  accepted word list was broadened with more phonetic spellings.
+- **Practice with Sounds — lotus visualization.** Root/Sacral/Solar
+  Plexus/Heart/Throat/Third Eye each render as an N-petal lotus (N = that
+  chakra's existing chant threshold, which already matches the real
+  traditional petal counts), with one more petal lighting up in that
+  chakra's color per recognized chant; the crown keeps its simpler rainbow
+  glow rather than attempting a literal 1000-petal rendering.
+- **Practice with Sounds — bigger silhouette.** The silhouette's display
+  size grew from a 230px to a 300px cap.
+
+## J.3 Success criteria
+
+- Buttons, cards, tabs, and inputs across Today, Routine, Journal,
+  Calendar, Guru's Teachings, Admin, and Kriya Practice show a visible,
+  tasteful hover/focus response and consistent elevation, in both light and
+  dark theme, with no functional regression anywhere.
+- A japa counter's uploaded background image fills the fullscreen counter
+  edge-to-edge on a real phone, with no visible stretching, distortion, or
+  overflow past the screen edge as the browser chrome shows/hides.
+- Chanting a bīja sound several times quickly, without pausing between
+  repetitions, credits each repetition as its own petal/count rather than
+  only the first.
+- Each non-crown chakra visibly renders as a lotus with the correct number
+  of petals, filling one at a time in that chakra's color as it's chanted,
+  reaching a fully-bloomed, locked-on glow exactly at its threshold.
+- The silhouette is visibly larger than before while still fitting
+  comfortably inside the fullscreen panel on a small phone screen.

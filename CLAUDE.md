@@ -605,7 +605,11 @@ original Visualizer iframe.
   plain `<img>` inside `.chakra-silhouette-wrap` (a fixed-aspect-ratio box,
   `aspect-ratio:312/338`, so the image never letterboxes and percentage
   positions map 1:1 to image pixels), with `#chakraSilDots` absolutely
-  positioned on top.
+  positioned on top. `max-width` was bumped from 230px to 300px on request
+  (still capped, not full-bleed, so it stays comfortably inside the
+  fullscreen panel on small phones) — since the overlay dots are sized as a
+  percentage of the wrap, they scaled up with it automatically, no separate
+  change needed.
 - **Dot positions were measured from the visualizer's own drawing code, not
   eyeballed.** Each `CHAKRA_SOUND_DEFS` entry's `top` (percent of the
   silhouette's height) reproduces the exact chakra marker positions the
@@ -655,7 +659,49 @@ original Visualizer iframe.
   Heart (Yaṁ/Yuṁ, sky blue, 12), Throat (Haṁ/Huṁ, indigo, 16), Third Eye
   (Om, milk white, 2), Crown (the full phrase, rainbow, 1 — "keep it on"
   reaching after a single correctly-recognized utterance, since no repeat
-  count was specified for it).
+  count was specified for it). These are, not coincidentally, the real
+  traditional yogic petal counts for those six chakras (Sahasrara's
+  traditional 1000 petals is why the crown skips the petal treatment
+  below) — see the lotus-petal bullet.
+- **Each non-crown chakra renders as an N-petal lotus, one petal per
+  chant, instead of a plain colored dot.** `buildChakraLotusSvg(def, count)`
+  generates an inline SVG with exactly `def.threshold` petals arranged
+  radially (a simple pointed-petal `<path>`, rotated by `360/threshold`
+  degrees per petal) around a center circle, filling petals in order as
+  `count` rises and leaving the rest a dim translucent white — this reuses
+  `threshold` directly rather than adding a separate petal-count field,
+  since (per the bullet above) they're already the same number. It replaces
+  the row dot's flat background for every chakra except the crown, whose
+  simple rainbow circular glow (`.chakra-node-dot.rainbow`) is kept as-is —
+  rendering anywhere near a legible fraction of Sahasrara's 1000 petals
+  wasn't attempted. `.chakra-node-dot` grew from 36px to 58px to give the
+  petals room to read clearly; the silhouette overlay dots
+  (`.chakra-sil-dot`) are unchanged (still plain glow markers) since at
+  their small size on the body silhouette, individual petals wouldn't be
+  distinguishable — the detailed view lives in the row list.
+- **Recognition was reworked to register a whole burst of rapid chanting,
+  not just one hit per pause — this is what "easy, quick" listening
+  actually required.** The original version called `handleChakraTranscript`
+  once per result and returned after the *first* matching token, so a
+  continuous-mode result whose transcript grew to "lam lam lam lam" while
+  the chanter kept going without pausing still only ever counted as one
+  hit — in practice this meant pausing and waiting after every single
+  repetition for it to be recognized as its own separate result, which is
+  exactly the "requires a lot of effort" complaint. `chakraResultTally`
+  (keyed by `resultIndex`, cleared on `result.isFinal`) now tracks how many
+  hits have already been credited for each in-progress result, and
+  `countChakraOccurrences()`/`handleChakraTranscript()` credit only the
+  *increase* in matching-token count since the last update for that same
+  index — so "lam lam lam lam" recognized as one phrase now credits Root
+  four times, immediately, proportional to how many times it was actually
+  chanted. Separately, `chakraRecognition.maxAlternatives = 4` plus
+  `bestChakraAlternative()` (picks the first alternative that matches a
+  known chakra sound instead of blindly trusting the browser's top-ranked
+  guess) and materially longer `words` lists per chakra (more phonetic
+  spellings — "lahm", "lung", "vum", "hmm", etc.) both increase recall
+  further. None of this changes matching *precision* (an unrelated word
+  still won't match) — it only stops correct chants from being missed or
+  under-counted.
 - **Pulse now, lock on later — one-way per session, on both the silhouette
   and the list.** Every recognized hit calls `pulseChakraNode(key)` via
   `registerChakraHit()`, which pulses *two* DOM elements per chakra in
@@ -724,6 +770,43 @@ without app.js needing to know about it.
   Scheduler follows the same design language (fonts, palette, `.pill`/
   `.item-row`/`.add-form` patterns) intentionally, so it reads as part of
   the same app rather than a bolted-on feature.
+- **The "premium visual pass" was a CSS-only enhancement, explicitly
+  requested, of the existing design language — not a redesign.** It added
+  new root tokens (`--shadow-sm`/`--shadow-md`/`--shadow-lg`, `--ease`,
+  `--radius-lg`, both light and dark) and layered polish onto shared,
+  already-existing primitives — `button.pill` (subtle gradient + lift-on-
+  hover), `.icon-btn`/`.tab-btn`/`.task-item`/`.item-row` (hover states),
+  a global `:focus-visible` ring and text-input focus glow, a global custom
+  scrollbar, a subtle two-tone radial-gradient page background, a gradient-
+  text treatment on the three "Sadhana" headings (`header.top h1`,
+  `.user-screen-inner h1`), and `box-shadow`/hover-lift on the major card
+  surfaces (`.journal-section`, `.quote-entry`, `.overview-group`,
+  `.mandatory-pinned-strip`, `.admin-account-list`, `.timeline-wrap`,
+  `.kriya-video-wrap`) plus a smoother scale+fade open animation for every
+  `.fullscreen` overlay. None of it renamed or restructured any `id`/class
+  `js/app.js` depends on, or touched markup — it is a reskin of the
+  existing primitives, so it applies everywhere those primitives are
+  already used (every tab, the auth/user-select screens, Admin, Kriya
+  Practice) without needing a per-screen pass. If a future visual request
+  needs more than this, treat it as a fresh design discussion rather than
+  assuming everything already flows from these tokens.
+- **Fullscreen overlays size to the real mobile viewport, not just `inset:0`.**
+  `.fullscreen` (used by the japa counter, Chakra Dharana, the account
+  modal, and the add/edit-activity sheet) sets `height:100dvh` and
+  `overflow:hidden` in addition to `position:fixed; inset:0`. On mobile
+  Safari/Chrome, the browser's own URL bar showing/hiding changes the
+  *layout* viewport height without changing what's actually visible;
+  relying on `inset:0` alone can leave a `background-size:cover` image
+  (`.fs-bg`, the japa counter's uploaded background — see
+  `resizeImageFile`/`applyFsBackground` in app.js) framed against the
+  wrong height and appearing to shift or spill past the visible screen
+  edge as the bar animates. `100dvh` tracks the real visible viewport
+  instead, and `.fs-bg` also gets a `#000` background-color fallback so
+  there's never a flash of the page's own background color behind a
+  large image while it decodes. `background-size:cover` itself was
+  already correct before this fix and is unchanged — it fills the frame
+  while preserving the image's aspect ratio (never stretches/distorts);
+  don't switch it to `contain` or a fixed `100% 100%` size.
 - **Real-time sync is intentionally partial.** The profile list and the
   shared Guru's Teachings library live-update across devices via Firestore
   `onSnapshot` listeners (see `initApp()` in app.js). Per-profile tracker
@@ -898,24 +981,48 @@ browser:
     Visualizer subtab is active by default and behaves exactly as before,
     then switch to the Practice with Sounds subtab and confirm the iframe
     hides and the meditating-figure silhouette (same artwork as the
-    Dharana visualizer) appears above the 7-chakra node list, with a faint
-    dot at each chakra position on the figure lining up with that chakra's
-    own symbol in the artwork (crown feather, third eye, throat, heart,
-    solar plexus, sacral, root). Click Start Listening (grant mic
-    permission) and chant each bīja sound near its threshold count —
-    confirm both the silhouette's dot at that chakra AND its row in the
-    list pulse together on a recognized chant, the row's count label
-    increments, and both flip to a brighter, permanently-lit "On ✦"/glowing
-    state exactly at its threshold (4/6/10/12/16/2/1) and not before, in
-    the correct color (yellow/silver/red/sky blue/indigo/milk white/
-    rainbow). Confirm an unrelated word doesn't false-trigger a chakra.
-    Confirm switching back to Visualizer and clicking Reset both stop the
-    microphone (no continued recognition) and Reset also clears all
-    counts/lock-on state on both the silhouette and the list. Switch
-    profiles or sign out mid-listening and confirm recognition stops rather
-    than continuing into the next session. In a browser without Web Speech
-    API support (or without HTTPS/localhost), confirm Start Listening shows
-    a plain explanatory message instead of failing silently.
+    Dharana visualizer, now a bit larger — max 300px vs the original 230px)
+    appears above the 7-chakra row list, with a faint dot at each chakra
+    position on the figure lining up with that chakra's own symbol in the
+    artwork (crown feather, third eye, throat, heart, solar plexus, sacral,
+    root). Confirm each non-crown row shows an N-petal lotus (4/6/10/12/16/2
+    petals for Root/Sacral/Solar Plexus/Heart/Throat/Third Eye respectively)
+    instead of a plain dot, all petals dim at 0 chants; the crown row keeps
+    its plain rainbow circular dot. Click Start Listening (grant mic
+    permission) and chant each bīja sound — confirm recognition is quick
+    and forgiving (a burst of several repetitions chanted quickly without
+    pausing should credit that many petals/counts at once, not just one),
+    that each chant lights up one more petal in that chakra's color (in
+    order around the lotus) while the silhouette's dot at that chakra AND
+    the row pulse together, and that the chakra flips to a brighter,
+    permanently-lit "On ✦"/glowing state (all petals filled) exactly at its
+    threshold (4/6/10/12/16/2/1) and not before, in the correct color
+    (yellow/silver/red/sky blue/indigo/milk white/rainbow). Confirm an
+    unrelated word doesn't false-trigger a chakra. Confirm switching back
+    to Visualizer and clicking Reset both stop the microphone (no continued
+    recognition) and Reset also clears all counts/petals/lock-on state on
+    both the silhouette and the list. Switch profiles or sign out
+    mid-listening and confirm recognition stops rather than continuing into
+    the next session. In a browser without Web Speech API support (or
+    without HTTPS/localhost), confirm Start Listening shows a plain
+    explanatory message instead of failing silently.
+23. Japa fullscreen background image: attach a background image to a japa
+    counter (📷/🖼️ icon), open its fullscreen counter on a phone-width
+    viewport, and confirm the image fills the entire screen edge-to-edge
+    without distortion or visibly overflowing/shifting past the screen
+    edge as the browser's URL bar shows/hides while scrolling or during
+    use. Remove the image and confirm it reverts to the plain background.
+24. Premium UI pass: this was a CSS-only visual enhancement (new shadow/
+    radius/easing tokens, hover/focus states, card elevation, gradient
+    headline text, a global scrollbar/selection style, smoother fullscreen
+    transitions) applied to primitives already shared across every screen,
+    not a redesign or a restructuring of any markup — there's no new
+    functional behavior to test here beyond confirming nothing regressed:
+    spot-check that buttons/tabs/cards across a few different tabs (Today,
+    Routine, Journal, Calendar, Guru's Teachings, Admin, Kriya Practice)
+    still look and behave correctly, that hovering/focusing interactive
+    elements shows a visible but not jarring response, and that dark mode
+    still renders correctly (the new tokens have dark-theme values too).
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

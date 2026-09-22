@@ -545,27 +545,64 @@ import { auth } from "./firebase-init.js";
   // up exactly with the artwork's own chakra symbols; the horizontal
   // position is identical for all seven (they all sit on the spine line).
   const CHAKRA_SIL_LEFT_PCT = 48.4;
+  // `words` lists are intentionally generous with phonetic spellings (not
+  // just the "correct" transliteration) since the goal is to recognize a
+  // chanted syllable quickly, not to grade pronunciation — a browser speech
+  // engine tuned for English sentences will often render "Laṁ" as "lahm" or
+  // "lung" depending on accent/mic quality, and rejecting those forces the
+  // chanter to repeat themselves for no benefit.
   const CHAKRA_SOUND_DEFS = [
-    { key:'root',     name:'Root · Mūlādhāra',     sound:'Laṁ / Luṁ',                         color:'#e8c400', threshold:4,  top:91.2, words:['lam','lum','laam','lung'] },
-    { key:'sacral',   name:'Sacral · Svādhiṣṭhāna', sound:'Vaṁ / Vuṁ',                         color:'#c7c9d1', threshold:6,  top:79.9, words:['vam','vum','vaam','vung'] },
-    { key:'solar',    name:'Solar Plexus · Maṇipūra', sound:'Raṁ / Ruṁ',                       color:'#e03b3b', threshold:10, top:69.6, words:['ram','rum','raam','rung'] },
-    { key:'heart',    name:'Heart · Anāhata',      sound:'Yaṁ / Yuṁ',                          color:'#4fb8e8', threshold:12, top:48.2, words:['yam','yum','yaam','yung'] },
-    { key:'throat',   name:'Throat · Viśuddha',    sound:'Haṁ / Huṁ',                          color:'#5b4fd6', threshold:16, top:34.3, words:['ham','hum','haam','hung','hmm'] },
-    { key:'forehead', name:'Third Eye · Ājñā',     sound:'Om',                                 color:'#f6f6ee', threshold:2,  top:17.1, words:['om','aum','ohm'] },
+    { key:'root',     name:'Root · Mūlādhāra',     sound:'Laṁ / Luṁ',                         color:'#e8c400', threshold:4,  top:91.2, words:['lam','lum','laam','luum','lahm','luhm','lung','lumm','lomm'] },
+    { key:'sacral',   name:'Sacral · Svādhiṣṭhāna', sound:'Vaṁ / Vuṁ',                         color:'#c7c9d1', threshold:6,  top:79.9, words:['vam','vum','vaam','vuum','vahm','vuhm','vung','wam','wum'] },
+    { key:'solar',    name:'Solar Plexus · Maṇipūra', sound:'Raṁ / Ruṁ',                       color:'#e03b3b', threshold:10, top:69.6, words:['ram','rum','raam','ruum','rahm','ruhm','rung','rom'] },
+    { key:'heart',    name:'Heart · Anāhata',      sound:'Yaṁ / Yuṁ',                          color:'#4fb8e8', threshold:12, top:48.2, words:['yam','yum','yaam','yuum','yahm','yuhm','yung','yumm'] },
+    { key:'throat',   name:'Throat · Viśuddha',    sound:'Haṁ / Huṁ',                          color:'#5b4fd6', threshold:16, top:34.3, words:['ham','hum','haam','huum','hahm','huhm','hung','hmm','humm'] },
+    { key:'forehead', name:'Third Eye · Ājñā',     sound:'Om',                                 color:'#f6f6ee', threshold:2,  top:17.1, words:['om','aum','ohm','aom','ommm'] },
     { key:'crown',    name:'Crown · Sahasrāra',    sound:'Om Hreem Sri Gurubyho Namaha',       color:'rainbow', threshold:1,  top:7.1,
-      words:['om hreem sri gurubyho namaha','om hreem shri gurubhyo namaha'],
-      tokens:['hreem','hrim','gurubyho','gurubhyo','gurubhyoh','namaha','namah'] }
+      words:['om hreem sri gurubyho namaha','om hreem shri gurubhyo namaha','om hrim sri gurubhyo namah'],
+      tokens:['hreem','hrim','hreeng','gurubyho','gurubhyo','gurubhyoh','gurubhyah','namaha','namah'] }
   ];
 
   let chakraCounts = {};
   let chakraLockedOn = {};
   let chakraRecognition = null;
   let chakraListening = false;
+  // Per-recognition-result tally: continuous mode keeps growing a single
+  // result's transcript across interim updates until it finalizes (e.g.
+  // "lam" -> "lam lam" -> "lam lam lam" as the chanter keeps repeating
+  // without pausing) — this tracks how many hits have already been
+  // credited for each in-progress result index so only the *new*
+  // repetitions since the last update are added, letting rapid continuous
+  // chanting register proportionally instead of just once per pause.
+  let chakraResultTally = {};
 
   function resetChakraSoundState(){
-    chakraCounts = {}; chakraLockedOn = {};
+    chakraCounts = {}; chakraLockedOn = {}; chakraResultTally = {};
     CHAKRA_SOUND_DEFS.forEach(d=>{ chakraCounts[d.key] = 0; chakraLockedOn[d.key] = false; });
     renderChakraNodes();
+  }
+
+  // Traditional yogic chakra iconography gives each chakra a fixed lotus
+  // petal count — and, not by coincidence, the chant-count thresholds this
+  // feature already used (4/6/10/12/16/2) are exactly those real petal
+  // counts for Root/Sacral/Solar Plexus/Heart/Throat/Third Eye. So "one
+  // petal lights up per chant, out of N total petals" falls directly out
+  // of data already on CHAKRA_SOUND_DEFS — no separate petal-count field
+  // needed. The crown (traditionally 1000 petals, threshold 1 here — "keep
+  // it on" needs no repeat count) keeps its plain rainbow glow instead of
+  // trying to render anywhere near that many petals legibly.
+  function buildChakraLotusSvg(def, count){
+    const total = def.threshold;
+    const filled = Math.min(count, total);
+    let petals = '';
+    for(let i=0;i<total;i++){
+      const angle = (360/total) * i;
+      const isFilled = i < filled;
+      const fill = isFilled ? def.color : 'rgba(255,255,255,0.16)';
+      petals += `<path d="M50,50 Q41,23 50,5 Q59,23 50,50 Z" fill="${fill}" transform="rotate(${angle} 50 50)"/>`;
+    }
+    const centerFill = filled >= total ? def.color : 'rgba(255,255,255,0.3)';
+    return `<svg viewBox="0 0 100 100" class="chakra-lotus-svg" aria-hidden="true">${petals}<circle cx="50" cy="50" r="9" fill="${centerFill}"/></svg>`;
   }
 
   function renderChakraNodes(){
@@ -577,12 +614,13 @@ import { auth } from "./firebase-init.js";
       const count = chakraCounts[d.key];
       const isRainbow = d.color === 'rainbow';
       const styleAttr = isRainbow ? '' : ` style="--dot-color:${d.color};"`;
+      const dotInner = isRainbow ? '' : buildChakraLotusSvg(d, count);
       return `<div class="chakra-node${locked?' locked-on':''}" id="chakraNode-${d.key}"${styleAttr}>
-        <div class="chakra-node-dot${isRainbow?' rainbow':''}"></div>
+        <div class="chakra-node-dot${isRainbow?' rainbow':' has-lotus'}">${dotInner}</div>
         <div class="chakra-node-info">
           <div class="chakra-node-name">${escapeHtml(d.name)}</div>
           <div class="chakra-node-sound">${escapeHtml(d.sound)}</div>
-          <div class="chakra-node-count">${locked ? 'On ✦' : `${count} / ${d.threshold}`}</div>
+          <div class="chakra-node-count">${locked ? 'On ✦' : `${count} / ${d.threshold} petals`}</div>
         </div>
       </div>`;
     }).join('');
@@ -617,28 +655,78 @@ import { auth } from "./firebase-init.js";
     return text.toLowerCase().replace(/[^a-z\s]/g,'').replace(/\s+/g,' ').trim();
   }
 
-  // One recognized utterance can only register one chakra hit — checked in
-  // fixed (root-to-crown) order, crown's long phrase first via its own
-  // 2-of-N distinctive-token heuristic since exact-phrase matching is
-  // unreliable for a 6-word Sanskrit phrase spoken through an English
-  // speech model.
-  function handleChakraTranscript(transcript){
-    const norm = normalizeChakraTranscript(transcript);
-    if(!norm) return;
+  function isCrownMatch(norm){
     const crown = CHAKRA_SOUND_DEFS[CHAKRA_SOUND_DEFS.length-1];
     const crownTokenHits = crown.tokens.filter(t=>norm.includes(t)).length;
-    if(crownTokenHits >= 2 || crown.words.some(w=>norm.includes(w))){
-      registerChakraHit(crown);
-      return;
-    }
+    return crownTokenHits >= 2 || crown.words.some(w=>norm.includes(w));
+  }
+
+  function countTokenOccurrences(tokens, words){
+    let n = 0;
+    for(const t of tokens) if(words.includes(t)) n++;
+    return n;
+  }
+
+  // A continuous-mode result's transcript keeps growing while the chanter
+  // keeps going without pausing (e.g. "lam" -> "lam lam" -> "lam lam lam"
+  // all under the SAME resultIndex) — so this counts every repetition
+  // found in the current transcript for whichever chakra it matches, and
+  // `handleChakraTranscript` below only credits the *increase* since the
+  // last update for that index. Without this, a whole burst of rapid
+  // chanting recognized as one phrase only ever counted as a single hit,
+  // which is what made the feature feel like it "required a lot of
+  // effort" — the chanter had to pause after every single repetition to
+  // get it recognized as its own separate result.
+  function countChakraOccurrences(norm){
     const tokens = norm.split(' ').filter(Boolean);
     for(const def of CHAKRA_SOUND_DEFS){
       if(def.key === 'crown') continue;
-      if(tokens.some(t=>def.words.includes(t))){
-        registerChakraHit(def);
-        return;
-      }
+      const n = countTokenOccurrences(tokens, def.words);
+      if(n > 0) return { def, count:n };
     }
+    return null;
+  }
+
+  // One result index (one continuous, not-yet-finalized utterance) is
+  // credited incrementally as its transcript grows, and only ever mapped
+  // to a single chakra — crown's long phrase is checked first via its own
+  // 2-of-N distinctive-token heuristic, since exact-phrase matching is
+  // unreliable for a 6-word Sanskrit phrase spoken through an English
+  // speech model.
+  function handleChakraTranscript(transcript, resultIndex){
+    const norm = normalizeChakraTranscript(transcript);
+    if(!norm) return;
+    const tally = chakraResultTally[resultIndex] || (chakraResultTally[resultIndex] = {});
+    if(isCrownMatch(norm)){
+      if(!tally.crown){
+        tally.crown = 1;
+        registerChakraHit(CHAKRA_SOUND_DEFS[CHAKRA_SOUND_DEFS.length-1]);
+      }
+      return;
+    }
+    const match = countChakraOccurrences(norm);
+    if(!match) return;
+    const already = tally[match.def.key] || 0;
+    const delta = match.count - already;
+    if(delta > 0){
+      tally[match.def.key] = match.count;
+      for(let i=0;i<delta;i++) registerChakraHit(match.def);
+    }
+  }
+
+  // Tries each recognized alternative (not just the top-ranked one) and
+  // uses the first one that actually matches a known chakra sound — the
+  // browser's #1-ranked guess for a short chanted syllable is often a
+  // stray English word, while a lower-ranked alternative is the correct
+  // match. This is the other half of making recognition "easy" rather
+  // than requiring repeated, effortful re-chanting.
+  function bestChakraAlternative(result){
+    for(let a=0; a<result.length; a++){
+      const norm = normalizeChakraTranscript(result[a].transcript);
+      if(!norm) continue;
+      if(isCrownMatch(norm) || countChakraOccurrences(norm)) return result[a].transcript;
+    }
+    return result[0].transcript;
   }
 
   function getSpeechRecognitionCtor(){
@@ -662,10 +750,16 @@ import { auth } from "./firebase-init.js";
     chakraRecognition = new Ctor();
     chakraRecognition.continuous = true;
     chakraRecognition.interimResults = true;
+    chakraRecognition.maxAlternatives = 4;
     chakraRecognition.lang = 'en-US';
     chakraRecognition.onresult = ev=>{
       for(let i=ev.resultIndex; i<ev.results.length; i++){
-        handleChakraTranscript(ev.results[i][0].transcript);
+        const result = ev.results[i];
+        handleChakraTranscript(bestChakraAlternative(result), i);
+        // Once a result finalizes, its index will never be updated again —
+        // drop its tally entry so chakraResultTally doesn't grow for the
+        // rest of a long chanting session.
+        if(result.isFinal) delete chakraResultTally[i];
       }
     };
     chakraRecognition.onerror = ev=>{
@@ -699,6 +793,7 @@ import { auth } from "./firebase-init.js";
       try{ chakraRecognition.stop(); }catch(e){ /* already stopped */ }
       chakraRecognition = null;
     }
+    chakraResultTally = {};
     const statusEl = document.getElementById('chakraSoundStatus');
     if(statusEl) statusEl.textContent = 'Tap "Start Listening" and chant a bīja mantra.';
     updateChakraListenBtn();

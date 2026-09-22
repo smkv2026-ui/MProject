@@ -147,13 +147,18 @@ its scope covers the whole app.
   you click **Done**, which shows a summary and stops it.
 - **Chakra Dharana → Practice with Sounds** is a second subtab (next to the
   original Visualizer) that shows the same meditating-figure silhouette
-  from the Dharana visualizer and listens through your microphone,
-  pulsing a colored dot at each chakra's position on that figure when you
-  chant its bīja sound (Lam/Vam/Ram/Yam/Ham/Om, plus the crown's full
-  phrase), locking it to a brighter, steady "on" glow once you've chanted
-  it enough times (4/6/10/12/16/2/1). This uses the browser's built-in
-  speech recognition, so it needs a browser that supports it (Chrome/Edge;
-  not Firefox) and works best said clearly in a quiet room — it's a
+  from the Dharana visualizer and listens through your microphone. Each
+  chakra (except the crown) shows as a lotus with its traditional number of
+  petals (4/6/10/12/16/2 for Root/Sacral/Solar Plexus/Heart/Throat/Third
+  Eye) — chanting its bīja sound (Lam/Vam/Ram/Yam/Ham/Om) lights up one
+  more petal in that chakra's color, and a matching dot pulses at that
+  chakra's position on the silhouette. Chant the crown's full phrase ("Om
+  Hreem Sri Gurubyho Namaha") to light it up in rainbow. Recognition keeps
+  up with quick, continuous chanting rather than needing a pause after
+  every repetition. Once a chakra's petals are all filled it locks to a
+  brighter, steady "on" glow. This uses the browser's built-in speech
+  recognition, so it needs a browser that supports it (Chrome/Edge; not
+  Firefox) and works best said clearly in a quiet room — it's a
   best-effort practice aid, not a precise mantra counter.
 
 ## Project layout
