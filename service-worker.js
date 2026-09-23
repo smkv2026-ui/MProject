@@ -4,7 +4,7 @@
 // this app ships new features frequently — always prefers a fresh network
 // copy over the cached one when online (see the fetch handler below), only
 // falling back to cache when there's no network at all.
-const CACHE_VERSION = 'sadhana-v3';
+const CACHE_VERSION = 'sadhana-v4';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -16,10 +16,15 @@ const PRECACHE_URLS = [
   './js/firebase-config.js',
   './js/auth-ui.js',
   './js/cloud-store.js',
+  './js/journey.js',
+  './js/india-places.js',
+  './assets/india-map.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable-512.png',
   './icons/favicon-32.png',
+  './icons/logo.svg',
+  './icons/apple-touch-icon.png',
   './assets/chakra-dharana-silhouette.png'
 ];
 

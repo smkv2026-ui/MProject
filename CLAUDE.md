@@ -52,7 +52,16 @@ js/app.js                The tracker UI logic: profiles, japa, practice,
                          (spiritual journaling — see "Journal module"
                          below). One file, one module scope — see
                          "Routine Scheduler module" below for
-                         why it wasn't split out.
+                         why it wasn't split out (Journey Logs is the one
+                         exception — it has its own storage, so it lives
+                         in js/journey.js).
+js/journey.js            The Journey Logs tab (Turiya → Waking / Dreaming /
+                         Deep Sleep / Just Turiya diagram, India map of
+                         places, dreams + voice notes, sleep hours, Turiya
+                         observer timer, Journey Circle collaboration) —
+                         its own module, see "Journey Logs module" below.
+js/india-places.js       Offline gazetteer (~250 Indian cities, capitals and
+                         pilgrimage sites with lat/lon) for Journey Logs.
 js/chakra-data.js        A large base64-encoded standalone HTML document
                          (the "Chakra Dharana" visualizer) rendered in an
                          iframe via a data: URL. Kept as its own module so it
@@ -61,12 +70,16 @@ js/chakra-data.js        A large base64-encoded standalone HTML document
                          to change.
 manifest.webmanifest     PWA manifest.
 service-worker.js        App-shell cache (see "PWA app-shell caching" below).
-icons/                   Generated PWA icons (mala-bead motif, app palette).
+icons/                   PWA icons + favicon, all rendered from icons/logo.svg
+                         (white lotus with a small diamond at its top tip on
+                         an ether-blue ground). Edit logo.svg, then
+                         re-render the PNGs from it — don't hand-edit them.
 assets/                  Static media too large for base64/Firestore —
                          kriya-practice.mp4 (see "Kriya Practice module"
-                         below) and chakra-dharana-silhouette.png (see
+                         below), chakra-dharana-silhouette.png (see
                          "Chakra Dharana — Practice with Sounds subtab"
-                         below).
+                         below), and india-map.svg (CC BY 4.0, see
+                         india-map.ATTRIBUTION.md and "Journey Logs module").
 firestore.rules          Security rules enforcing workspace membership.
 firebase.json            Hosting + Firestore deploy config.
 BRD.md                   Business requirements document.
@@ -80,6 +93,10 @@ users/{uid}                    { email, workspaceId, updatedAt }
 workspaces/{code}              { members: [uid, ...], createdAt, createdBy }
 workspaces/{code}/kv/{key}     { value: "<JSON string>", updatedAt }
 globalKv/{key}                 { value: "<JSON string>", updatedAt }
+
+workspaces/{code}/kv/journey-<profileId>        Journey Logs, one per profile
+workspaces/{code}/kv/journey-audio-<dreamId>    one per dream voice note
+globalKv/journey-circle-<CODE>                  { kind, members:[{ws,pid,name}], createdAt }
 ```
 
 A "workspace" is the shared space a household joins together via a short
@@ -730,6 +747,108 @@ original Visualizer iframe.
   (a new `data` field plus a documented reason to start persisting mantra
   counts), not a silent addition.
 
+## Journey Logs module
+
+The eighth tab (`#tab-journey`, last in the tab bar). Unlike every other
+tab it lives in its **own module, `js/journey.js`**, not in app.js: it has
+its own storage (separate kv docs, not the profile blob) and its own live
+listeners, and only *reads* the profile blob for one thing (the Waking
+state's "daily sādhanā"). app.js passes it a small context object in
+`initJourney({ getData, getCurrentUser, getUsers, escapeHtml, todayStr,
+fmtShort, fmtTime, uid, normalizeData, userStorageKey, sandhyaLabel })` and
+calls `openJourneyTab()` on tab click and `resetJourneyState()` on
+switch-user / sign-out / workspace change / import (next to
+`stopKriyaPractice()` etc.). All of #tab-journey's markup is rendered by
+journey.js; index.html only has the empty container.
+
+- **The diagram.** An inline SVG (`diagramSvg()`): four state boxes on top
+  (Waking/Jāgrat, Dreaming/Svapna, Deep Sleep/Suṣupti, Just Turiya/Turīya)
+  and the Turiya orb below, with an arrow from the orb to the selected
+  state (animated in JS with `requestAnimationFrame`, since SVG line
+  endpoints can't be CSS-transitioned) and a small light that travels
+  through the three states into "Just Turiya" and back (SMIL
+  `animateMotion`, omitted under `prefers-reduced-motion`). Selecting Just
+  Turiya or the orb itself hides the arrow — Turiya without the imposition
+  of the three states — and opens the Turiya panel. Each box shows a live
+  badge (places, dreams, 7-night sleep average, observer time today). Phone
+  widths also get a row of state pills under the diagram.
+- **Storage — one doc per profile, in that profile's own workspace.**
+  `journey-<profileId>` holds `{v, circle, places[], dreams[], sleep[],
+  turiya[]}` as a JSON string (same `{value}` shape as every kv doc).
+  It is *not* inside `sadhana-data-<profileId>`: a Journey Circle member in
+  another household needs to read (and live-subscribe to) your journey, and
+  a separate doc means they never have to load your whole profile blob
+  (Journal included) to do it. Writes go through `cloudSet` (your own
+  workspace only). Dream voice notes are separate docs
+  (`journey-audio-<dreamId>`: `{mime, dataUrl, dur}`, MediaRecorder at
+  ~24 kbps, capped at 2 minutes / 950 KB of data URL) so the journey doc
+  itself stays small; they're loaded only when someone presses play, and
+  deleted with their dream.
+- **Live sync, own doc included.** `openJourneyTab()` subscribes to your
+  own journey doc (`subscribeWorkspaceKey`), so edits from your other
+  devices appear live — unlike the profile blob, which is load-once (see
+  Conventions). Saves are debounced 300ms and last-write-wins; while a save
+  is pending, incoming snapshots of your own doc are ignored
+  (`savePending`) so a stale echo can't wipe an edit you just made.
+- **Journey Circle (collaboration across logins).** Membership lives in
+  `globalKv/journey-circle-<CODE>` as a real Firestore array of
+  `{ws, pid, name}` updated with `arrayUnion` / `arrayRemove`
+  (`journeyCircleCreate/Join/Remove` in cloud-store.js), so two people
+  joining at once merge instead of overwriting. Your own journey doc's
+  `circle` field says which circle you're in (one at a time). Every member
+  subscribes to the circle doc and to each other member's journey doc
+  (`subscribeWorkspaceKey(member.ws, 'journey-'+member.pid)`), and all
+  views render the merged `participants()` list — you first — with each
+  entry tagged by its author's profile name in that author's color
+  (`colorFor(key)`, you are always ether blue). Only your own entries get a
+  delete button. "Add from this shared space" adds a same-workspace profile
+  directly (writes their journey doc's `circle` and joins them).
+  **No Firestore rules change was needed**: reading another workspace's kv
+  doc is already allowed for any signed-in user (the Admin trade-off
+  above), writes stay limited to your own workspace, and globalKv is
+  already open to any signed-in user — the circle doc only ever holds
+  names and ids, never journey content. A 6-character code is the only
+  thing standing between a stranger and joining a circle; the journeys
+  themselves were already readable to any signed-in account under the
+  existing rules, so this adds no new exposure.
+- **Waking → India map.** `assets/india-map.svg` (unmodified
+  `@svg-maps/india`, CC BY 4.0 — attribution shown under the map and in
+  `assets/india-map.ATTRIBUTION.md`) is fetched once and inlined so its 36
+  state/UT paths can be styled and hit-tested. It is a Mercator map;
+  `projectLatLon()` / `unprojectXY()` use constants fitted against six
+  known landmarks (0.3px RMS on the 612×696 viewBox), and all but 3 of the
+  250 checked gazetteer places land inside their own state (those 3 are
+  within 1 km of a border). Don't swap the map file without refitting.
+  Places come from three sources, in order of convenience: the offline
+  gazetteer (`js/india-places.js`, type-ahead), an online search
+  (OpenStreetMap Nominatim, India only, one request per explicit click —
+  their usage policy forbids autocomplete-style querying), or "Tap to pin"
+  anywhere on land (`isPointInFill` on the state paths; the name defaults
+  to the nearest gazetteer place). Pins/labels are sized in screen pixels
+  (`1/getScreenCTM().a`) so they stay legible at any zoom; the map pans,
+  wheel-zooms and pinch-zooms by rewriting its `viewBox`. Pins drop in one
+  after another on first draw and a newly added pin drops in with a
+  ripple; later redraws don't re-animate.
+- **Waking → daily sādhanā.** `summarizeSadhanaDay(data, dateStr)` reads
+  the same `data.logs` Today renders (Japa count/time per sandhyā, Practice
+  sessions with clock times from each log entry's `endedAt`/`seconds`,
+  pages read, learning notes dated that day, done Routine activities) —
+  nothing is copied. For circle members it fetches their profile blob once
+  (`getWorkspaceKv`, ↻ to refresh), not live.
+- **Dreaming / Deep Sleep / Turiya.** Dreams take any past date (defaults
+  to today) and group by that date. Sleep stores `sleepAt`/`wakeAt` as
+  local `YYYY-MM-DDTHH:MM` strings plus `minutes`, dated by the waking day;
+  the summary shows each member's last 7 nights as bars. Turiya is an
+  observer timer: tap the orb to begin, tap to return; sessions under 5s
+  aren't logged. The running start time is mirrored in localStorage
+  (`sadhana-turiya-run:<ws>:<pid>`) so a reload resumes it (discarded if
+  older than 8h), and switch-user/sign-out logs the session like the
+  Practice timer does. Past sessions can be added manually.
+- **Not done, deliberately:** Journey data isn't shown in the Admin view
+  (not requested); export/import includes each profile's journey doc
+  (`journeyData`) but not voice notes; there are no push notifications for
+  a collaborator's changes (they appear live while the tab is open).
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -749,6 +868,14 @@ them, they communicate via `document.dispatchEvent(new CustomEvent(...))`:
   calls `openAdminScreen()`. Deliberately **not** folded into
   `sadhana-auth-ready`, since the Admin account has no workspace/profile
   and must never run through `initApp()`'s normal profile-loading path.
+
+**Startup race (fixed):** a restored session can resolve in auth-ui.js
+before app.js — which has the bigger module graph (chakra-data.js,
+journey.js…) — has even registered its listeners, which used to leave the
+profile screen empty. auth-ui.js therefore also records the handoff on
+`<html data-sadhana-session="ready|admin">` (cleared on sign-out), and the
+last lines of app.js catch up from that flag if the event already fired.
+Keep that block last in app.js.
 
 If you add new cross-module behavior, prefer adding another named event over
 importing between auth-ui.js and app.js — it keeps the auth flow swappable
@@ -790,6 +917,19 @@ without app.js needing to know about it.
   Practice) without needing a per-screen pass. If a future visual request
   needs more than this, treat it as a fresh design discussion rather than
   assuming everything already flows from these tokens.
+- **Ether blue + cosmic dark mode.** `--ether`, `--ether-2`,
+  `--ether-soft`, `--ether-glow` (light and dark values) add a luminous
+  sky-blue accent to the warm palette: tab underline, pill gradients,
+  focus rings, the page's background glow, and everything in Journey Logs.
+  Dark mode was changed from the original warm brown to a deep night-blue
+  (`--bg:#070B1A`) with a faint drifting starfield/aurora
+  (`body::before`, dark only) and glassy cards, so the ether accent glows.
+  The chosen theme is also remembered in localStorage (`sadhana-theme`,
+  written by `applyTheme()`) and applied by a tiny inline script in
+  index.html's `<head>` before first paint, so the sign-in and profile
+  screens — shown before any profile's own saved theme loads — match it
+  (falling back to the system's `prefers-color-scheme`). All animation is
+  switched off under `prefers-reduced-motion`.
 - **Fullscreen overlays size to the real mobile viewport, not just `inset:0`.**
   `.fullscreen` (used by the japa counter, Chakra Dharana, the account
   modal, and the add/edit-activity sheet) sets `height:100dvh` and
@@ -1023,6 +1163,33 @@ browser:
     still look and behave correctly, that hovering/focusing interactive
     elements shows a visible but not jarring response, and that dark mode
     still renders correctly (the new tokens have dark-theme values too).
+
+25. Journey Logs — diagram & Waking: open Journey Logs; the four state
+    boxes and the Turiya orb render, the arrow glides to whichever state
+    you click, and choosing the orb or "Just Turiya" hides it. In Waking,
+    type "Rishi" and pick Rishikesh; search online for a place not in the
+    list (e.g. "Kedarkantha") and pick the result; turn on "Tap to pin" and
+    tap near Bhopal — the name fills in as Bhopal. Each lands exactly on
+    its spot with a name label and your name tag; zoom/pan/pinch work and
+    labels stay readable. Daily sādhanā for today lists the same Japa,
+    Practice (with clock times), Reading and Learning entries as Today.
+26. Journey Logs — Dreaming / Deep Sleep / Turiya: save a dream dated two
+    days ago with a 2-second voice note — it's listed under that date and
+    plays back; sleep 22:30 → 06:00 previews and saves as 7h 30m and shows
+    in the 7-night bars; begin/return on the orb logs a session and the
+    stats (today / 7 days / all time) update; reload mid-session and the
+    timer resumes.
+27. Journey Circle: from one login start a circle and note the code; sign
+    up as a *different* account in a new shared space, join with the code
+    and add a place and a dream. Both screens now show both people's
+    entries, each with its author's name tag, updating live without a
+    reload; each can play the other's voice note but only delete their
+    own. "+ <profile>" adds another profile from the same shared space.
+    Leaving on one screen removes that person from the other live.
+28. Logo & theme: the white-lotus-with-diamond logo shows on the sign-in,
+    profile and main screens and as the favicon/installed icon; switching
+    to dark mode gives the night-blue ether theme, and the sign-in screen
+    opens in that same theme on the next visit.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

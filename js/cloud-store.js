@@ -14,8 +14,10 @@ import {
   collection,
   setDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   arrayUnion,
+  arrayRemove,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 import { db } from "./firebase-init.js";
@@ -97,6 +99,71 @@ export async function adminGetWorkspaceKv(workspaceCode, key) {
   const snap = await getDoc(doc(db, "workspaces", workspaceCode, "kv", key));
   if (!snap.exists()) return null;
   return { value: snap.data().value };
+}
+
+export async function cloudDelete(key) {
+  await deleteDoc(kvDoc(key));
+}
+
+// --- Journey Logs: read-only access to another workspace's kv doc (a
+// Journey Circle collaborator in a different household). firestore.rules
+// already allows any signed-in user to read any workspace's kv (see the
+// Admin trade-off), while writes stay limited to your own workspace — so a
+// collaborator can see, but never modify, someone else's journey log. ---
+export async function getWorkspaceKv(workspaceCode, key) {
+  const snap = await getDoc(doc(db, "workspaces", workspaceCode, "kv", key));
+  if (!snap.exists()) return null;
+  return { value: snap.data().value };
+}
+
+export function subscribeWorkspaceKey(workspaceCode, key, onChange) {
+  return onSnapshot(doc(db, "workspaces", workspaceCode, "kv", key), snap => {
+    onChange(snap.exists() ? snap.data().value : null);
+  }, err => console.error("subscribeWorkspaceKey failed for " + workspaceCode + "/" + key, err));
+}
+
+// A Journey Circle's membership list lives in globalKv (readable/writable by
+// any signed-in account, so members from different households can join the
+// same circle) as a real Firestore array rather than a JSON string, so
+// concurrent joins merge via arrayUnion instead of overwriting each other.
+// It only ever holds {ws, pid, name} tuples — never journey content.
+function circleDoc(code) {
+  return doc(db, "globalKv", "journey-circle-" + code);
+}
+
+export async function journeyCircleExists(code) {
+  const snap = await getDoc(circleDoc(code));
+  return snap.exists();
+}
+
+export async function journeyCircleCreate(member) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = randomCode();
+    const ref = circleDoc(code);
+    const existing = await getDoc(ref);
+    if (existing.exists()) continue;
+    await setDoc(ref, { kind: "journey-circle", members: [member], createdAt: serverTimestamp() });
+    return code;
+  }
+  throw new Error("Could not allocate a circle code, please try again.");
+}
+
+export async function journeyCircleJoin(code, member) {
+  const ref = circleDoc(code);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("That circle code doesn't match any Journey Circle.");
+  await updateDoc(ref, { members: arrayUnion(member) });
+}
+
+export async function journeyCircleRemove(code, memberObjects) {
+  if (!memberObjects.length) return;
+  await updateDoc(circleDoc(code), { members: arrayRemove(...memberObjects) });
+}
+
+export function subscribeJourneyCircle(code, onChange) {
+  return onSnapshot(circleDoc(code), snap => {
+    onChange(snap.exists() ? (snap.data().members || []) : null);
+  }, err => console.error("subscribeJourneyCircle failed for " + code, err));
 }
 
 function randomCode(len = 6) {

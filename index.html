@@ -9,13 +9,25 @@
 <!-- PWA -->
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F1ECDF" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#18160F" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#070B1A" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Sadhana">
-<link rel="icon" href="icons/icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/logo.svg" type="image/svg+xml">
+<link rel="icon" href="icons/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<script>
+  // Apply the last-used (or the system's) theme before first paint, so the
+  // sign-in and profile screens match it too — not just the tracker once a
+  // profile's own saved theme loads.
+  (function(){
+    var t = null;
+    try{ t = localStorage.getItem('sadhana-theme'); }catch(e){}
+    if(t !== 'light' && t !== 'dark') t = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -26,6 +38,7 @@
 <!-- Auth screen (sign in / create account) -->
 <div class="user-screen" id="authScreen">
   <div class="user-screen-inner" style="max-width:380px;">
+    <img class="brand-logo" src="icons/logo.svg" alt="" width="84" height="84">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
 
@@ -65,6 +78,7 @@
 <!-- User select screen -->
 <div class="user-screen" id="userSelectScreen" style="display:none;">
   <div class="user-screen-inner">
+    <img class="brand-logo" src="icons/logo.svg" alt="" width="84" height="84">
     <h1 class="serif">Sadhana</h1>
     <p class="user-tagline">Guru Kripa hi Kevalam</p>
     <div class="daily-quote-card" id="dailyQuoteCard">
@@ -93,9 +107,12 @@
   </div>
 
   <header class="top">
-    <div>
+    <div class="brand">
+      <img class="brand-mark" src="icons/logo.svg" alt="" width="44" height="44">
+      <div>
       <h1>Sadhana</h1>
       <p id="userSubtitle">daily practice tracker</p>
+      </div>
     </div>
     <div class="top-actions">
       <button class="icon-btn" id="switchUserBtn" title="Switch user">⇄</button>
@@ -115,6 +132,7 @@
     <button class="tab-btn" data-tab="gurus">Guru's Teachings</button>
     <button class="tab-btn" data-tab="chakra">Chakra Dharana</button>
     <button class="tab-btn" data-tab="kriya">Kriya Practice</button>
+    <button class="tab-btn" data-tab="journey">Journey Logs</button>
   </div>
 
   <div id="tab-today">
@@ -360,6 +378,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Journey Logs: rendered by js/journey.js -->
+  <div id="tab-journey" style="display:none;"></div>
 </div>
 
 <!-- Fullscreen Japa Counter -->

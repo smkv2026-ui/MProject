@@ -5,6 +5,7 @@ import {
   adminListAllUsers, adminGetWorkspaceKv
 } from "./cloud-store.js";
 import { auth } from "./firebase-init.js";
+import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } from "./journey.js";
 
   const SANDHYAS = ['morning','afternoon','evening'];
   const SANDHYA_LABEL = { morning:'Morning sandhyā', afternoon:'Afternoon sandhyā', evening:'Evening sandhyā', any:'Daily (no sandhyā)' };
@@ -398,8 +399,7 @@ import { auth } from "./firebase-init.js";
     document.getElementById('userSubtitle').textContent = 'daily practice tracker · '+user.name;
     document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
     document.querySelector('.tab-btn[data-tab="today"]').classList.add('active');
-    document.getElementById('tab-today').style.display='';
-    document.getElementById('tab-calendar').style.display='none';
+    document.querySelectorAll('#appScreen > [id^="tab-"]').forEach(el=>{ el.style.display = el.id === 'tab-today' ? '' : 'none'; });
     selectedDate = null;
     renderAll();
     rebuildReminderSchedule();
@@ -413,6 +413,7 @@ import { auth } from "./firebase-init.js";
     stopKriyaPractice();
     stopChakraListening();
     resetChakraSoundState();
+    resetJourneyState();
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -463,6 +464,7 @@ import { auth } from "./firebase-init.js";
     stopKriyaPractice();
     stopChakraListening();
     resetChakraSoundState();
+    resetJourneyState();
     users = [];
     gurus = [];
     currentUser = null;
@@ -484,7 +486,11 @@ import { auth } from "./firebase-init.js";
   });
 
   function applyTheme(){
-    document.documentElement.setAttribute('data-theme', data.settings.theme === 'dark' ? 'dark' : 'light');
+    const theme = data.settings.theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+    // Remembered per device so the sign-in/profile screens (shown before any
+    // profile's own saved theme is loaded) open in the same theme next time.
+    try{ localStorage.setItem('sadhana-theme', theme); }catch(e){ /* private mode */ }
   }
 
   /* ---------- Tabs ---------- */
@@ -503,12 +509,22 @@ import { auth } from "./firebase-init.js";
       document.getElementById('tab-calendar').style.display = tab==='calendar' ? '' : 'none';
       document.getElementById('tab-gurus').style.display = tab==='gurus' ? '' : 'none';
       document.getElementById('tab-kriya').style.display = tab==='kriya' ? '' : 'none';
+      document.getElementById('tab-journey').style.display = tab==='journey' ? '' : 'none';
       if(tab==='routine') renderRoutineTab();
       if(tab==='journal') renderJournalTab();
       if(tab==='calendar') renderCalendar();
       if(tab==='gurus') renderGurusTab();
       if(tab==='kriya') renderKriyaTab();
+      if(tab==='journey') openJourneyTab();
     });
+  });
+
+  initJourney({
+    getData: ()=>data,
+    getCurrentUser: ()=>currentUser,
+    getUsers: ()=>users,
+    escapeHtml, todayStr, fmtShort, fmtTime, uid, normalizeData, userStorageKey,
+    sandhyaLabel: SANDHYA_LABEL
   });
 
   /* ---------- Chakra Dharana ---------- */
@@ -830,11 +846,16 @@ import { auth } from "./firebase-init.js";
       catch(e){ /* ignore */ }
     }
     const usersData = {};
+    const journeyData = {};
     for(const u of users){
       try{
         const res = await cloudGet(userStorageKey(u.id));
         usersData[u.id] = (res && res.value) ? JSON.parse(res.value) : defaultData();
       }catch(e){ usersData[u.id] = defaultData(); }
+      try{
+        const res = await cloudGet(journeyStorageKey(u.id));
+        if(res && res.value) journeyData[u.id] = JSON.parse(res.value);
+      }catch(e){ /* no journey yet */ }
     }
     return {
       format: 'sadhana-full-export',
@@ -842,6 +863,7 @@ import { auth } from "./firebase-init.js";
       exportedAt: new Date().toISOString(),
       users,
       usersData,
+      journeyData,
       gurus
     };
   }
@@ -873,6 +895,7 @@ import { auth } from "./firebase-init.js";
     if(!confirm('Importing will replace all users, their tracker data, and Guru\'s Teachings on this device with the contents of this file. Continue?')) return;
 
     finalizeAllRunning();
+    resetJourneyState();
 
     try{
       users = parsed.users;
@@ -881,6 +904,8 @@ import { auth } from "./firebase-init.js";
       for(const u of users){
         const uData = normalizeData(parsed.usersData[u.id] || defaultData());
         await cloudSet(userStorageKey(u.id), JSON.stringify(uData));
+        const jData = parsed.journeyData && parsed.journeyData[u.id];
+        if(jData && typeof jData === 'object') await cloudSet(journeyStorageKey(u.id), JSON.stringify(jData));
       }
 
       gurus = Array.isArray(parsed.gurus) ? parsed.gurus : [];
@@ -4445,3 +4470,10 @@ import { auth } from "./firebase-init.js";
     document.getElementById('kriyaDoneBtn').style.display = 'none';
   }
 
+  /* ---------- Startup handoff (must stay last) ---------- */
+  // auth-ui.js can finish restoring a saved session before this (larger)
+  // module has loaded and registered its listeners; it records the handoff
+  // on <html data-sadhana-session>, so catch up here if the event already
+  // fired. Registered listeners never see a missed event twice.
+  if(document.documentElement.dataset.sadhanaSession === 'ready') initApp();
+  else if(document.documentElement.dataset.sadhanaSession === 'admin'){ adminSessionActive = true; openAdminScreen(); }

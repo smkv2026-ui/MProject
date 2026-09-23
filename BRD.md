@@ -1011,3 +1011,71 @@ a modest size increase for its silhouette.
   reaching a fully-bloomed, locked-on glow exactly at its threshold.
 - The silhouette is visibly larger than before while still fitting
   comfortably inside the fullscreen panel on a small phone screen.
+
+# Addendum K — Journey Logs, Ether Theme and New Logo
+
+## K.1 Objective
+
+Add a "Journey Logs" tab built around the Turiya model of consciousness —
+Turiya, the witness, moving through the waking, dreaming and deep-sleep
+states and resting beyond them — with a log for each state, and let several
+sādhakas (including from different logins/households) see all of their
+journeys together on one screen, each entry tagged with its author's name.
+Alongside it: make the whole app more striking with an "ether" blue accent
+and a proper dark mode, keep it mobile-friendly, and replace the logo with a
+white lotus bearing a small diamond at its top tip.
+
+## K.2 Scope delivered
+
+- **Turiya diagram:** four clickable states (Waking, Dreaming, Deep Sleep,
+  Just Turiya) above a clickable Turiya orb, with an animated arrow from the
+  orb to the chosen state and a small light traversing through the three
+  states into "Just Turiya".
+- **Waking:** add places visited — from a built-in list of ~250 Indian
+  places, an online map search, or by tapping the map — each shown as a
+  named pin exactly where it belongs on an India map (zoom, pan, pinch),
+  tagged with who went there; plus the day's sādhanā (Japa, Practice with
+  times, Reading, Learning) taken straight from Today's data.
+- **Dreaming:** dreams with date (back-dating allowed; defaults to today),
+  subject, description and an optional voice recording (up to 2 minutes),
+  listed under their day.
+- **Deep Sleep:** time went to sleep and time woke up; hours slept are
+  calculated and shown per night and as a 7-night chart with the average.
+- **Turiya:** a meditate-as-the-observer timer; total time today, over 7
+  days and all time; past sessions can be added.
+- **Journey Circle:** start a circle to get a code; anyone signed in to the
+  app can join with it from their own login, and profiles from the same
+  shared space can be added directly. Everyone's entries appear together,
+  each tagged with its author's name, updating live. Only your own entries
+  can be deleted.
+- **Look & feel:** new ether-blue accent across the app, a night-blue
+  "cosmic" dark mode with a subtle starfield, theme remembered on the sign-in
+  screen, mobile layout tweaks, and the white-lotus-with-diamond logo as the
+  in-app mark, favicon and installed-app icon.
+
+## K.3 Deliberate simplifications
+
+- Journey Logs are not shown in the Admin view (not requested).
+- Export/import includes each profile's journey logs, but not dream voice
+  recordings.
+- The online place search needs a network connection; the built-in list and
+  tap-to-pin work offline.
+- A collaborator's sādhanā summary is loaded when the Waking view opens (↻
+  refreshes it) rather than streaming live; their places, dreams, sleep and
+  Turiya sessions do update live.
+- No Firestore rules change was needed (see CLAUDE.md "Journey Logs
+  module"); a circle code is the only barrier to joining a circle, which is
+  consistent with the app's existing read-access trade-off.
+
+## K.4 Success criteria
+
+- Every state in the diagram is clickable and opens its own log; the arrow
+  visibly moves to the chosen state.
+- A place added by name, by online search or by tapping lands on its real
+  location on the India map, labelled with the place and the person.
+- A dream with a voice note can be saved for a past date and played back;
+  sleep hours are calculated correctly; observer time accumulates.
+- Two different logins in the same circle see each other's entries, name-
+  tagged, without reloading.
+- The app looks consistent in light and dark mode and on a phone-width
+  screen, with the new logo everywhere the old one appeared.

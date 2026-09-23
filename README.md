@@ -125,6 +125,8 @@ its scope covers the whole app.
   plus a long-term goals checklist, a searchable Timeline of past entries,
   and an optional PIN lock (🔒 icon) that gates just the Journal tab on a
   shared device.
+- The **theme toggle** (◐) now switches between the warm light theme and a
+  night-blue "ether" dark theme; the sign-in screen remembers your choice.
 - **Admin** has no button or icon anywhere — sign in on the normal sign-in
   form with email `admin@sadhana.local` and password `SriGuruBabaJi` and it
   opens a dashboard listing every account ever created on the app, letting
@@ -139,12 +141,22 @@ its scope covers the whole app.
   Firestore directly once signed in some other way. See "Admin module" in
   CLAUDE.md for the full trade-off (and the alternatives that were
   considered) before changing who can access this feature.
-- **Kriya Practice** (last tab, after Chakra Dharana) is locked behind a
+- **Kriya Practice** (after Chakra Dharana) is locked behind a
   password (`SriGuruBabaJi`) until entered once per profile session. Once
   open, drag the speed slider (0.25× to 2×) to set the pace, then **Start**
   to play the practice video on loop at that speed — it keeps looping
   automatically, counting completed playthroughs and elapsed time, until
   you click **Done**, which shows a summary and stops it.
+- **Journey Logs** (last tab) — tap Turiya's states on the diagram:
+  **Waking** pins the places you've visited on an India map (pick from the
+  built-in list, search the online map, or tap the map) and shows the day's
+  sādhanā from Today; **Dreaming** records dreams (back-dated if you like)
+  with an optional voice note; **Deep Sleep** counts the hours between
+  going to sleep and waking; **Turiya** times meditation as the observer.
+  Start a **Journey Circle** and share its 6-letter code — anyone signed in
+  to the app, from their own login, can join, and everyone's entries then
+  appear together on one screen, tagged with each person's name and
+  updating live. This needs **no change to your Firestore rules**.
 - **Chakra Dharana → Practice with Sounds** is a second subtab (next to the
   original Visualizer) that shows the same meditating-figure silhouette
   from the Dharana visualizer and listens through your microphone. Each

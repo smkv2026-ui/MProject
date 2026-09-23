@@ -229,6 +229,7 @@ onAuthStateChanged(auth, async user => {
     authScreen.style.display = "";
     userSelectScreen.style.display = "none";
     appScreen.style.display = "none";
+    delete document.documentElement.dataset.sadhanaSession;
     document.dispatchEvent(new CustomEvent("sadhana-signed-out"));
     return;
   }
@@ -239,6 +240,10 @@ onAuthStateChanged(auth, async user => {
   // show-user-select-screen flow, and let app.js's Admin code manage the
   // screen from here.
   if (user.email && user.email.toLowerCase() === ADMIN_EMAIL) {
+    // Recorded as well as dispatched: app.js may still be loading its own
+    // (larger) module graph when a restored session resolves this fast, and
+    // checks this flag on startup so it never misses the handoff.
+    document.documentElement.dataset.sadhanaSession = "admin";
     document.dispatchEvent(new CustomEvent("sadhana-admin-ready"));
     return;
   }
@@ -250,6 +255,7 @@ onAuthStateChanged(auth, async user => {
     }
     authScreen.style.display = "none";
     userSelectScreen.style.display = "";
+    document.documentElement.dataset.sadhanaSession = "ready";
     document.dispatchEvent(new CustomEvent("sadhana-auth-ready"));
   } catch (err) {
     showError(friendlyAuthError(err));

@@ -1,7 +1,7 @@
 {
   "name": "Sādhanā — Practice Tracker",
   "short_name": "Sadhana",
-  "description": "A daily sādhanā practice tracker — japa, timed practice, reading and learning, shared across your devices.",
+  "description": "A daily sādhanā practice tracker — japa, timed practice, reading, learning and journey logs, shared across your devices.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
