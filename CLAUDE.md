@@ -290,6 +290,31 @@ instead:
   reminders not firing, this is the first thing to check — it is not
   necessarily a bug.
 
+## Japa milestone haptics
+
+The fullscreen japa counter's tap zone (`#fsTapArea`) calls
+`japaMilestoneHaptic()` — a short-short-long `navigator.vibrate([30, 40,
+30, 40, 120])` pattern, distinct from a plain buzz so it reads as "you hit
+a mark" rather than an accidental double-tap — whenever a tap brings
+`fsState.liveCount` to a multiple of 108 (the traditional mala length: 108,
+216, 324, …). Only the increment path (the tap zone) checks this; `fsMinus`
+and `fsReset` don't, since decrementing past/through a multiple isn't
+"reaching" it.
+
+- **Best-effort, like Reminders above** — `navigator.vibrate` is
+  unsupported on iOS Safari entirely (Apple gives web pages no access to
+  the Taptic Engine; there is no workaround) and on desktop browsers; the
+  call is guarded by `if(navigator.vibrate)` and wrapped in try/catch, so
+  it's silently a no-op wherever it isn't supported, exactly like a missed
+  reminder notification. Don't add a "vibration not supported" message —
+  the original Reminders feature deliberately didn't warn about its own
+  platform gaps either.
+- **Verified with a stubbed `navigator.vibrate`** (Playwright, since this
+  sandbox has no real vibration hardware): tapping to 107 calls it zero
+  times, the 108th tap calls it once, and taps 109–215 call it zero more
+  times before the 216th tap calls it again — confirming it fires exactly
+  on the multiple, not on every tap past it or on a range around it.
+
 ## Header stats strip
 
 A one-line bar (`#statsStrip` in index.html, styled by `.stats-strip` in
@@ -1190,6 +1215,12 @@ browser:
     profile and main screens and as the favicon/installed icon; switching
     to dark mode gives the night-blue ether theme, and the sign-in screen
     opens in that same theme on the next visit.
+29. Japa milestone haptics: on an Android phone (iOS Safari cannot support
+    this — skip there), open a japa counter fullscreen and tap up to 107 —
+    no vibration. The 108th tap gives a distinct short-short-long buzz.
+    Keep tapping to 215 (no buzz), then 216 (buzz again). Tapping ➖ down
+    through a multiple, or ↺ Reset, never buzzes. On desktop/unsupported
+    browsers, tapping past 108 does nothing extra and raises no error.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

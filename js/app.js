@@ -1141,10 +1141,23 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     fsState = null;
     save(); renderJapa(); renderStatsStrip();
   }
+  // Vibration API support is device/browser-dependent (most Android
+  // browsers; not supported on iOS Safari at all — Apple gives web pages no
+  // access to the Taptic Engine) and navigator.vibrate itself is a no-op
+  // over unsupported browsers/desktops, so this is best-effort with no
+  // fallback needed. A short-short-long pattern (rather than a single
+  // buzz) so it reads as "milestone reached" distinct from an accidental
+  // double-tap.
+  function japaMilestoneHaptic(){
+    if(navigator.vibrate){
+      try{ navigator.vibrate([30, 40, 30, 40, 120]); }catch(e){ /* unsupported */ }
+    }
+  }
   document.getElementById('fsTapArea').addEventListener('click', ()=>{
     if(!fsState) return;
     fsState.liveCount++;
     document.getElementById('fsCount').textContent = fsState.liveCount;
+    if(fsState.liveCount > 0 && fsState.liveCount % 108 === 0) japaMilestoneHaptic();
   });
   document.getElementById('fsMinus').addEventListener('click', (e)=>{
     e.stopPropagation();
