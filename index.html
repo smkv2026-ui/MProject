@@ -376,6 +376,24 @@
         <button class="pill" id="kriyaStartBtn">Start Practice</button>
         <button class="pill ghost" id="kriyaDoneBtn" style="display:none;">Done</button>
       </div>
+
+      <div class="pranayama-section">
+        <div class="sec-head" style="margin-bottom:10px;">
+          <div>
+            <h3 class="pranayama-title">🫁 Pranayama Ratio</h3>
+            <div class="desc">Measure your inhale : hold : exhale : hold ratio</div>
+          </div>
+        </div>
+        <button type="button" class="pranayama-btn" id="pranayamaBtn">
+          <span class="pranayama-phase" id="pranayamaPhaseLabel">Press &amp; hold to begin Inhale</span>
+          <span class="pranayama-timer" id="pranayamaTimer"></span>
+        </button>
+        <p class="empty-note" id="pranayamaHint" style="margin-top:10px;">Press and hold the circle while you breathe in; release the moment the inhale ends. After that, just tap once to end each hold and the exhale.</p>
+        <div class="form-actions" style="margin-top:4px;">
+          <button class="pill ghost" type="button" id="pranayamaResetBtn">Reset</button>
+        </div>
+        <div id="pranayamaLog" class="pranayama-log"></div>
+      </div>
     </div>
   </div>
 

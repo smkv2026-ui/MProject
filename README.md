@@ -146,7 +146,11 @@ its scope covers the whole app.
   open, drag the speed slider (0.25× to 2×) to set the pace, then **Start**
   to play the practice video on loop at that speed — it keeps looping
   automatically, counting completed playthroughs and elapsed time, until
-  you click **Done**, which shows a summary and stops it.
+  you click **Done**, which shows a summary and stops it. Below it, a
+  **Pranayama Ratio** tool measures your breathing: press and hold the
+  circle while you inhale, release when the inhale ends, then just tap
+  once to end each hold and the exhale — it logs your inhale : hold :
+  exhale : hold ratio (e.g. 1 : 4 : 2 : 2) each round.
 - **Journey Logs** (last tab) — tap Turiya's states on the diagram:
   **Waking** pins the places you've visited on an India map (pick from the
   built-in list, search the online map, or tap the map) and shows the day's

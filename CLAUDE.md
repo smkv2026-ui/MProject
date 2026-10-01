@@ -617,6 +617,76 @@ tracker" reasoning as the Journal and Routine modules.
   or folding it into `runningTimers` with a `finalizeAllRunning()` case) —
   don't bolt it on without revisiting this.
 
+## Pranayama Ratio (nested inside Kriya Practice)
+
+A small breath-ratio measuring tool added below the video/speed/stats
+section inside `#kriyaContent` — not a separate tab or subtab, and not
+separately password-gated; it just appears once Kriya Practice itself is
+unlocked, since the request was for "a small section under Kriya practice."
+
+- **One button carries all four phases of a round**, but only the first
+  phase (inhale) is measured by *holding* — the rest are measured
+  automatically once started, ended by a plain tap:
+  1. **Press** the circle to start Pūraka (inhale); **release** to end it —
+     that held duration is what's measured. Releasing immediately starts
+     Antara Kumbhaka (hold-in), which now ticks on its own.
+  2. **Tap** to end the hold-in and start Rechaka (exhale), which also now
+     ticks on its own.
+  3. **Tap** to end the exhale and start Bāhya Kumbhaka (hold-out), ticking
+     on its own.
+  4. **Press** (the start of the *next* round's inhale) ends the hold-out —
+     completing and evaluating this round — and immediately begins
+     measuring the new inhale from that same press.
+  This was asked for exactly this way ("click (and can keep the touch on)
+  when breathing in… hold is automatically counted… click again…"), and the
+  mechanical reason it works is that `pointerdown` is what ends every
+  *automatic* phase (hold-in, exhale, hold-out) and begins the next one,
+  while `pointerup` only ever matters while the current phase is inhale —
+  so a quick tap used to end an automatic phase never gets mistaken for
+  "releasing a hold," and a genuine press of some length is what measures
+  the new inhale. (`pranayamaPress`/`pranayamaRelease`, wired to
+  `pointerdown`/`pointerup`/`pointercancel` on `#pranayamaBtn`, plus
+  `keydown`/`keyup` on Space/Enter for desktop keyboard use — guarded
+  against `ev.repeat` so OS key-repeat doesn't restart the inhale while a
+  key is held.)
+- **A phase under 0.3s discards the whole round** (`PRANAYAMA_MIN_PHASE_SEC`
+  in `finishPranayamaRound()`) rather than logging a ratio built on a
+  near-zero number — a wild one if it's the denominator (inhale), or a
+  misleadingly-near-0 one if it's any other phase. This also means
+  tapping instead of holding at the inhale-start point (a slip some users
+  will make, since that one gesture differs from the rest) self-corrects:
+  the round is silently thrown out and `#pranayamaHint` says why, rather
+  than logging a nonsense ratio.
+- **The ratio is relative to the inhale** (`values.map(v => v / d.in)`),
+  matching the traditional convention (e.g. "1:4:2" for Nadi Shodhana,
+  the exact shape of the 1-4-2-2 example given), rounded to one decimal.
+  Each logged round also shows the four raw second counts alongside the
+  ratio, so the rounding is never the only record of what was measured.
+- **Ephemeral, like `kriyaState` right above it.** `pranayamaLog` is a
+  plain in-memory array, not written to `data`/Firestore — this is a
+  practice aid for the current sitting, not a historical record (same
+  reasoning as Kriya's loop counter: a future request for real history
+  would be a deliberate new data source, not a silent addition). Reset
+  button and switch-user/sign-out both call `resetPranayama()`, which
+  abandons any in-progress phase *and* clears the log — called right next
+  to `stopKriyaPractice()` in both places so nothing from one profile ever
+  bleeds into the next.
+- **Touch ergonomics**: `#pranayamaBtn` sets `touch-action:none` and
+  disables text selection/the iOS long-press callout
+  (`-webkit-touch-callout:none`), and `pranayamaPress` calls
+  `setPointerCapture()` so a finger that drifts slightly during a long
+  inhale-hold still delivers its eventual release to the same button
+  rather than silently losing the gesture.
+- **Verified end-to-end with simulated pointer/keyboard gestures**
+  (Playwright, mocked Firebase): a full round's logged ratio matched its
+  raw second counts; a round with one too-short phase was correctly
+  discarded with the explanatory hint and nothing added to the log; Reset
+  cleared an in-progress phase and the whole log; Space-bar hold/release/
+  tap reproduced the same phase transitions as pointer gestures; and
+  switching profiles mid-inhale fully reset the tool (and re-locked Kriya
+  Practice) rather than leaving a stale phase running into the next
+  profile.
+
 ## Chakra Dharana — Practice with Sounds subtab
 
 Added after Kriya Practice, as a second subtab inside the existing Chakra
@@ -1221,6 +1291,20 @@ browser:
     Keep tapping to 215 (no buzz), then 216 (buzz again). Tapping ➖ down
     through a multiple, or ↺ Reset, never buzzes. On desktop/unsupported
     browsers, tapping past 108 does nothing extra and raises no error.
+30. Pranayama Ratio: inside Kriya Practice (after unlocking), press and
+    hold the breath circle for a few seconds, then release — it switches
+    to "Holding in" and starts counting on its own. Tap once to switch to
+    "Exhaling", tap again for "Holding out", then press and hold again to
+    begin the next inhale — this both completes the round (a ratio and the
+    four raw times appear in the list below, roughly matching how long you
+    held each phase) and starts timing the new inhale in the same motion.
+    Deliberately tap instead of hold at that press-to-start-inhale moment
+    and confirm the round is discarded with an explanatory message rather
+    than logging a bad ratio. Confirm Reset clears the in-progress phase
+    and the whole list. On desktop, confirm holding and releasing the
+    Space/Enter key while the button is focused reproduces the same
+    phases. Switch profiles mid-inhale and confirm Kriya Practice re-locks
+    and the tool comes back fully reset (no stray phase, empty list).
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

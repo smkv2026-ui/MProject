@@ -411,6 +411,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     journalUnlockedThisSession = false;
     kriyaUnlockedThisSession = false;
     stopKriyaPractice();
+    resetPranayama();
     stopChakraListening();
     resetChakraSoundState();
     resetJourneyState();
@@ -462,6 +463,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     journalUnlockedThisSession = false;
     kriyaUnlockedThisSession = false;
     stopKriyaPractice();
+    resetPranayama();
     stopChakraListening();
     resetChakraSoundState();
     resetJourneyState();
@@ -4482,6 +4484,172 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     document.getElementById('kriyaStartBtn').style.display = '';
     document.getElementById('kriyaDoneBtn').style.display = 'none';
   }
+
+  /* ---------- Pranayama Ratio (nested inside Kriya Practice) ----------
+     A small breath-ratio measuring tool living inside the already
+     password-gated Kriya Practice tab (no separate unlock of its own).
+     One round-button carries all four phases of a pranayama cycle -
+     Pūraka (inhale), Antara Kumbhaka (hold in), Rechaka (exhale), Bāhya
+     Kumbhaka (hold out) - using the SAME press gesture throughout, but
+     only inhale cares about *how long* it's held:
+       press   -> inhale starts
+       release -> inhale ends (measured) and hold-in starts automatically
+       tap     -> hold-in ends and exhale starts automatically
+       tap     -> exhale ends and hold-out starts automatically
+       press   -> hold-out ends AND the next inhale starts (same press)
+     So pointerdown is what ends every phase except inhale (those three
+     don't need to be *held*, just marked), while pointerup only matters
+     while the current phase is inhale. This isn't logged to `data`/
+     Firestore — like `kriyaState`, it's a live, in-the-moment session aid
+     (see "Kriya Practice module" in CLAUDE.md for why that pattern was
+     chosen), reset alongside it on switch-user/sign-out. */
+  const PRANAYAMA_PHASES = ['in', 'antara', 'out', 'bahya'];
+  const PRANAYAMA_PHASE_LABEL = {
+    in: 'Inhaling · Pūraka',
+    antara: 'Holding in · Antara Kumbhaka',
+    out: 'Exhaling · Rechaka',
+    bahya: 'Holding out · Bāhya Kumbhaka'
+  };
+  const PRANAYAMA_IDLE_LABEL = 'Press & hold to begin Inhale';
+  // A phase shorter than this is almost certainly a stray tap, not a real
+  // breath — the round is discarded rather than logging a ratio built on
+  // a near-zero denominator (which would read as a wild, meaningless
+  // number) or a near-zero numerator (which would misleadingly read as 0).
+  const PRANAYAMA_MIN_PHASE_SEC = 0.3;
+  let pranayamaPhase = null; // null (idle) | one of PRANAYAMA_PHASES
+  let pranayamaPhaseStart = 0;
+  let pranayamaDurations = {}; // seconds for whichever phases of the current round are already done
+  let pranayamaTickHandle = null;
+  let pranayamaLog = []; // completed rounds this session: [{in,antara,out,bahya,ratio}], newest first
+
+  function renderPranayamaIdle(){
+    const btn = document.getElementById('pranayamaBtn');
+    if(!btn) return;
+    btn.classList.remove(...PRANAYAMA_PHASES);
+    document.getElementById('pranayamaPhaseLabel').textContent = PRANAYAMA_IDLE_LABEL;
+    document.getElementById('pranayamaTimer').textContent = '';
+  }
+
+  function updatePranayamaTimer(){
+    if(!pranayamaPhase) return;
+    const el = document.getElementById('pranayamaTimer');
+    if(el) el.textContent = ((Date.now() - pranayamaPhaseStart) / 1000).toFixed(1) + 's';
+  }
+
+  function startPranayamaPhase(phase){
+    pranayamaPhase = phase;
+    pranayamaPhaseStart = Date.now();
+    const btn = document.getElementById('pranayamaBtn');
+    btn.classList.remove(...PRANAYAMA_PHASES);
+    btn.classList.add(phase);
+    document.getElementById('pranayamaPhaseLabel').textContent = PRANAYAMA_PHASE_LABEL[phase];
+    updatePranayamaTimer();
+    clearInterval(pranayamaTickHandle);
+    pranayamaTickHandle = setInterval(updatePranayamaTimer, 100);
+  }
+
+  // Ends whichever phase is currently running and records its duration;
+  // the caller decides what happens next (start another phase, and/or
+  // close out a completed round).
+  function endPranayamaPhase(){
+    if(!pranayamaPhase) return;
+    clearInterval(pranayamaTickHandle);
+    pranayamaDurations[pranayamaPhase] = (Date.now() - pranayamaPhaseStart) / 1000;
+    pranayamaPhase = null;
+  }
+
+  function fmtPranayamaSec(s){ return s.toFixed(1) + 's'; }
+  function fmtPranayamaRatio(ratio){ return ratio.map(r => (Math.round(r * 10) / 10).toString()).join(' : '); }
+
+  function renderPranayamaLog(){
+    const el = document.getElementById('pranayamaLog');
+    if(!el) return;
+    el.innerHTML = pranayamaLog.slice(0, 10).map(r => `
+      <div class="pranayama-row">
+        <span class="pranayama-ratio">${fmtPranayamaRatio(r.ratio)}</span>
+        <span class="jl-muted">${fmtPranayamaSec(r.in)} · ${fmtPranayamaSec(r.antara)} · ${fmtPranayamaSec(r.out)} · ${fmtPranayamaSec(r.bahya)}</span>
+      </div>`).join('');
+  }
+
+  // Called once all four phases of a round are in pranayamaDurations.
+  // Ratio is expressed relative to the inhale (the standard pranayama
+  // convention, e.g. "1:4:2" for Nadi Shodhana), rounded to one decimal.
+  function finishPranayamaRound(){
+    const d = pranayamaDurations;
+    pranayamaDurations = {};
+    const values = PRANAYAMA_PHASES.map(p => d[p]);
+    const hintEl = document.getElementById('pranayamaHint');
+    if(values.some(v => v == null || v < PRANAYAMA_MIN_PHASE_SEC)){
+      if(hintEl) hintEl.textContent = 'That round had a phase shorter than 0.3s and wasn\'t counted — try again, a little slower.';
+      return;
+    }
+    const ratio = values.map(v => v / d.in);
+    pranayamaLog.unshift({ in: d.in, antara: d.antara, out: d.out, bahya: d.bahya, ratio });
+    renderPranayamaLog();
+    if(hintEl) hintEl.textContent = 'Press and hold the circle while you breathe in; release the moment the inhale ends. After that, just tap once to end each hold and the exhale.';
+  }
+
+  function pranayamaPress(ev){
+    if(ev.cancelable) ev.preventDefault();
+    if(ev.pointerId !== undefined && ev.target.setPointerCapture){
+      try{ ev.target.setPointerCapture(ev.pointerId); }catch(e){ /* already captured */ }
+    }
+    if(pranayamaPhase === 'in') return; // already mid-press; a stray second pointer
+    if(pranayamaPhase === 'antara'){
+      endPranayamaPhase();
+      startPranayamaPhase('out');
+    }else if(pranayamaPhase === 'out'){
+      endPranayamaPhase();
+      startPranayamaPhase('bahya');
+    }else if(pranayamaPhase === 'bahya'){
+      endPranayamaPhase();
+      finishPranayamaRound();
+      startPranayamaPhase('in');
+    }else{
+      startPranayamaPhase('in');
+    }
+  }
+
+  function pranayamaRelease(ev){
+    if(ev.cancelable) ev.preventDefault();
+    if(pranayamaPhase === 'in'){
+      endPranayamaPhase();
+      startPranayamaPhase('antara');
+    }
+    // Releasing during antara/out/bahya does nothing — those phases end on
+    // the *next* press (a plain tap), not on release, since they were
+    // never held in the first place.
+  }
+
+  // Abandons whatever phase is running without logging a (necessarily
+  // incomplete) round. Used by Reset and by switch-user/sign-out cleanup,
+  // which also clears this session's already-completed rounds — ephemeral
+  // like kriyaState, not a historical record (see module comment above).
+  function resetPranayama(){
+    clearInterval(pranayamaTickHandle);
+    pranayamaPhase = null;
+    pranayamaDurations = {};
+    pranayamaLog = [];
+    renderPranayamaIdle();
+    renderPranayamaLog();
+    const hintEl = document.getElementById('pranayamaHint');
+    if(hintEl) hintEl.textContent = 'Press and hold the circle while you breathe in; release the moment the inhale ends. After that, just tap once to end each hold and the exhale.';
+  }
+
+  const pranayamaBtn = document.getElementById('pranayamaBtn');
+  pranayamaBtn.addEventListener('pointerdown', pranayamaPress);
+  pranayamaBtn.addEventListener('pointerup', pranayamaRelease);
+  pranayamaBtn.addEventListener('pointercancel', resetPranayama);
+  pranayamaBtn.addEventListener('contextmenu', ev => ev.preventDefault());
+  // Space/Enter work too (desktop keyboard users), guarded against key
+  // repeat so holding the key doesn't fire multiple presses.
+  pranayamaBtn.addEventListener('keydown', ev => {
+    if((ev.key === ' ' || ev.key === 'Enter') && !ev.repeat) pranayamaPress(ev);
+  });
+  pranayamaBtn.addEventListener('keyup', ev => {
+    if(ev.key === ' ' || ev.key === 'Enter') pranayamaRelease(ev);
+  });
+  document.getElementById('pranayamaResetBtn').addEventListener('click', resetPranayama);
 
   /* ---------- Startup handoff (must stay last) ---------- */
   // auth-ui.js can finish restoring a saved session before this (larger)
