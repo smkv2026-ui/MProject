@@ -62,6 +62,12 @@ js/journey.js            The Journey Logs tab (Turiya → Waking / Dreaming /
                          its own module, see "Journey Logs module" below.
 js/india-places.js       Offline gazetteer (~250 Indian cities, capitals and
                          pilgrimage sites with lat/lon) for Journey Logs.
+js/ashtanga.js           The Ashtanga tab (eight-limb dial, per-limb practice
+                         cards, progress view) — its own module, see
+                         "Ashtanga module" below.
+js/ashtanga-data.js      Static content for Ashtanga: 8 limbs × 37
+                         parameters (Devanagari, IAST, meaning, sutra ref,
+                         daily-life examples). Pure data, no logic.
 js/chakra-data.js        A large base64-encoded standalone HTML document
                          (the "Chakra Dharana" visualizer) rendered in an
                          iframe via a data: URL. Kept as its own module so it
@@ -125,7 +131,8 @@ and `mandatorySchedule` (optional display-time/duration overrides for the
 Japa/Practice sandhyas, used only to position them on the timeline). It also
 holds (added by the Journal module, see below): `journal` (one entry object
 per date, keyed by `dateStr`) and `journalGoals` (a flat array of long-term
-spiritual goals). New profiles get all of these via `defaultData()`;
+spiritual goals). And (added by the Ashtanga module): `ashtanga`
+(`{ [dateStr]: { [paramId]: {done, note} } }`). New profiles get all of these via `defaultData()`;
 profiles created before a given feature existed are back-filled by
 `normalizeData()` the first time they're loaded — always route a
 freshly-fetched profile blob through `normalizeData()` rather than using
@@ -944,6 +951,51 @@ journey.js; index.html only has the empty container.
   (`journeyData`) but not voice notes; there are no push notifications for
   a collaborator's changes (they appear live while the tab is open).
 
+## Ashtanga module
+
+The ninth tab (`#tab-ashtanga`, last in the tab bar): Patañjali's eight
+limbs (YS 2.29) as a clockwise dial plus daily practice cards. Lives in its
+own module, `js/ashtanga.js`, with content in `js/ashtanga-data.js`. Unlike
+Journey Logs it stores into the profile blob, but it uses the same
+context-injection pattern so it doesn't need app.js's module scope:
+`initAshtanga({ getData, save, todayStr, escapeHtml })`, `openAshtangaTab()`
+on tab click, `resetAshtangaState()` next to `resetJourneyState()` (switch
+user, sign-out, import). index.html only has the empty container.
+
+- **Storage.** `data.ashtanga[dateStr][paramId] = {done:true, note:'…'}`,
+  saved through the normal debounced `save()` — so it's load-once /
+  last-write-wins like the rest of the profile blob. Entries with neither
+  `done` nor a note are pruned, and empty dates removed, so untouched days
+  cost nothing. A new day starts unticked simply because it has no entry.
+  **Never rename a parameter `id`** in ashtanga-data.js — saved history is
+  keyed by it; changing the English/IAST label is fine.
+- **Maths.** Per-limb % = done ÷ that limb's parameter count; overall % =
+  plain average of the eight limb %s (not done ÷ 37, so a 4-item limb
+  weighs the same as a 5-item one, as specified). Streak = consecutive days
+  with overall ≥ 50%, counted back from today — but if today hasn't reached
+  50% yet, counting starts from yesterday, so an unfinished morning doesn't
+  show the streak as broken.
+- **Dial.** One inline SVG (400×400 viewBox): 8 wedges starting at 12
+  o'clock going clockwise, each with a separate outer progress arc
+  (`pathLength="100"`, `stroke-dasharray="<pct> 100"`, CSS-transitioned).
+  Status classes `st-none`/`st-partial`/`st-done` colour wedge + arc grey /
+  `--gold` amber / `--sage` green. **Green is reserved for "done"** —
+  selection is shown with the ether-blue outline and an outward nudge,
+  never green. Ticking updates the dial and detail % in place
+  (`updateDial()`), without re-rendering, so the CSS transitions animate.
+  Keyboard: segments are a `radiogroup` with roving tabindex — arrows move
+  and select, Home/End jump, Enter/Space select.
+- **Past days.** The ‹ › / date input (no future dates) switches every
+  view to that day; ticking and notes write to that date, with a banner
+  saying so. Progress heatmap cells jump to that day.
+- **Progress view.** Stat tiles, a week or Monday-first month heatmap
+  (sage intensity by %, future days dimmed and not clickable), 7/30-day
+  sparklines per limb, and the "practised least" limb (lowest average over
+  the chosen window; ties go to the earlier limb). Like the Journal's Growth
+  view this is trends, not points/badges.
+- **Not done, deliberately:** Ashtanga data isn't shown in the Admin view
+  (not requested); there are no reminders for it.
+
 ## Event contract between auth-ui.js and app.js
 
 Because auth and the tracker UI are separate modules with no imports between
@@ -1305,6 +1357,17 @@ browser:
     Space/Enter key while the button is focused reproduces the same
     phases. Switch profiles mid-inhale and confirm Kriya Practice re-locks
     and the tool comes back fully reset (no stray phase, empty list).
+31. Ashtanga: open the tab — 8 segments run clockwise from 12 o'clock
+    (Yama … Samādhi), each with Sanskrit + English name and today's %;
+    the centre shows overall %, the date and the streak. Click a segment
+    (or arrow-key between them) and its detail opens below. Tick 3 of 5
+    Yama cards: cards turn green, Yama reads 60% and turns amber, overall
+    becomes 8%; tick all 5 → green 100%; tap one again to undo. Add a
+    reflection note, reload — ticks and note persist. Go back a day with
+    ‹, tick items there, return to today. Progress: the heatmap colours
+    those days, trends show per-limb lines, "practised least" names the
+    weakest limb and opens it. Check a 375px viewport has no horizontal
+    scroll and dark mode reads correctly.
 
 During development this was exercised with Playwright against a mocked
 Firebase (Auth + Firestore) backend rather than a real project — see the

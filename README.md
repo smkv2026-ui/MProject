@@ -161,6 +161,14 @@ its scope covers the whole app.
   to the app, from their own login, can join, and everyone's entries then
   appear together on one screen, tagged with each person's name and
   updating live. This needs **no change to your Firestore rules**.
+- **Ashtanga** (last tab) — Patañjali's eight limbs as a dial running
+  clockwise from 12 o'clock. Each segment shows that limb's progress for
+  the day (grey → amber → green); tap one to see its parameters, each with
+  a meaning, ideas for practising it today, a "Mark as done" toggle and an
+  optional one-line note. The centre shows the day's overall % and your
+  streak (days at ≥ 50%). Use ‹ › to fill in earlier days; **Progress**
+  shows a week/month heatmap, 7/30-day trends per limb and the limb you've
+  practised least.
 - **Chakra Dharana → Practice with Sounds** is a second subtab (next to the
   original Visualizer) that shows the same meditating-figure silhouette
   from the Dharana visualizer and listens through your microphone. Each

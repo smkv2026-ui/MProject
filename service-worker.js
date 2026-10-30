@@ -4,7 +4,7 @@
 // this app ships new features frequently — always prefers a fresh network
 // copy over the cached one when online (see the fetch handler below), only
 // falling back to cache when there's no network at all.
-const CACHE_VERSION = 'sadhana-v4';
+const CACHE_VERSION = 'sadhana-v5';
 const PRECACHE_URLS = [
   './',
   './index.html',
@@ -18,6 +18,8 @@ const PRECACHE_URLS = [
   './js/cloud-store.js',
   './js/journey.js',
   './js/india-places.js',
+  './js/ashtanga.js',
+  './js/ashtanga-data.js',
   './assets/india-map.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',

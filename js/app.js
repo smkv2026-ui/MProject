@@ -6,6 +6,7 @@ import {
 } from "./cloud-store.js";
 import { auth } from "./firebase-init.js";
 import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } from "./journey.js";
+import { initAshtanga, openAshtangaTab, resetAshtangaState } from "./ashtanga.js";
 
   const SANDHYAS = ['morning','afternoon','evening'];
   const SANDHYA_LABEL = { morning:'Morning sandhyā', afternoon:'Afternoon sandhyā', evening:'Evening sandhyā', any:'Daily (no sandhyā)' };
@@ -30,7 +31,10 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
       // "Journal module" for the entry shape. journalGoals is a flat,
       // manually-maintained list (not auto-linked to entries).
       journal:{},
-      journalGoals:[]
+      journalGoals:[],
+      // Ashtanga: per-day ticks/notes, data.ashtanga[dateStr][paramId] =
+      // {done, note} — see "Ashtanga module".
+      ashtanga:{}
     };
   }
   // Back-fills fields added after a profile's data was first created, so
@@ -54,6 +58,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     });
     if(!d.journal || typeof d.journal !== 'object') d.journal = {};
     if(!Array.isArray(d.journalGoals)) d.journalGoals = [];
+    if(!d.ashtanga || typeof d.ashtanga !== 'object' || Array.isArray(d.ashtanga)) d.ashtanga = {};
     return d;
   }
   let data = defaultData();
@@ -415,6 +420,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     stopChakraListening();
     resetChakraSoundState();
     resetJourneyState();
+    resetAshtangaState();
     document.getElementById('appScreen').style.display='none';
     document.getElementById('addActivityFab').style.display='none';
     document.getElementById('userSelectScreen').style.display='';
@@ -467,6 +473,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
     stopChakraListening();
     resetChakraSoundState();
     resetJourneyState();
+    resetAshtangaState();
     users = [];
     gurus = [];
     currentUser = null;
@@ -512,13 +519,20 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
       document.getElementById('tab-gurus').style.display = tab==='gurus' ? '' : 'none';
       document.getElementById('tab-kriya').style.display = tab==='kriya' ? '' : 'none';
       document.getElementById('tab-journey').style.display = tab==='journey' ? '' : 'none';
+      document.getElementById('tab-ashtanga').style.display = tab==='ashtanga' ? '' : 'none';
       if(tab==='routine') renderRoutineTab();
       if(tab==='journal') renderJournalTab();
       if(tab==='calendar') renderCalendar();
       if(tab==='gurus') renderGurusTab();
       if(tab==='kriya') renderKriyaTab();
       if(tab==='journey') openJourneyTab();
+      if(tab==='ashtanga') openAshtangaTab();
     });
+  });
+
+  initAshtanga({
+    getData: ()=>data,
+    save, todayStr, escapeHtml
   });
 
   initJourney({
@@ -898,6 +912,7 @@ import { initJourney, openJourneyTab, resetJourneyState, journeyStorageKey } fro
 
     finalizeAllRunning();
     resetJourneyState();
+    resetAshtangaState();
 
     try{
       users = parsed.users;
